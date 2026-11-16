@@ -85,6 +85,7 @@ async function boot() {
   afterLogin();
 }
 function afterLogin() {
+  state.rules = null;
   if (state.me.user.must_change) return renderPassword(true);
   state.dealers = state.me.dealers;
   let saved = null; try { saved = +localStorage.getItem("ig_dealer") || null; } catch (e) {}
@@ -193,14 +194,105 @@ window.addEventListener("hashchange", route);
  *  target  : ordine di un importo fisso, a prescindere dall'incremento delle giacenze (nessun orizzonte), con conferma Sì/No
  */
 const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze", "Codici", "Risultato"];
-const ORIZZ = [[0.5, "2 settimane"], [1, "1 mese"], [2, "2 mesi"], [3, "3 mesi (trimestre)"], [6, "6 mesi"], [12, "12 mesi"]];
+const ORIZZ = [[0.5, "2 settimane"], [1, "1 mese"], [2, "2 mesi"], [3, "3 mesi (trimestre)"], [4, "4 mesi"], [6, "6 mesi"], [9, "9 mesi"], [12, "12 mesi"]];
+
+/* ============ Regole di riordino ============
+ * Le sceglie ogni utente e restano salvate per lui. Valgono per tutte le proposte d'ordine. */
+const RULES_DEF = { months: 1, consAdj: 0, keepMin: true, cap: "none", capMonths: 6, round: "nearest", exclNoScorta: true, minDemand: 0, exclOnDemand: true, minLine: 0, alertMonths: 3 };
+const CAPM = [1, 2, 3, 4, 6, 9, 12, 18, 24];
+const ROUND_L = { nearest: "al pezzo più vicino", up: "per eccesso", down: "per difetto" };
+function rules() { return state.rules || (state.rules = { ...RULES_DEF, ...((state.me && state.me.user.rules) || {}) }); }
+let rulesTimer;
+function saveRules() {
+  clearTimeout(rulesTimer);
+  rulesTimer = setTimeout(async () => {
+    try { const r = await api("PUT", "/api/me/rules", { rules: rules() }); state.me.user.rules = r.rules; Object.assign(rules(), r.rules); }
+    catch (x) { if (!x.silent) toast("Regole non salvate: " + x.message); }
+  }, 500);
+}
+const pctTxt = v => (v > 0 ? "+" : "") + fmtN(v) + "%";
+const fmtM = v => fmtN(v, v % 1 ? 1 : 0);
+function rulesText(r, mode) {
+  const cov = mode === "cover", parts = [];
+  if (cov) parts.push(`orizzonte ${orizzLabel(r.months)}`);
+  parts.push(r.consAdj ? `consumo ${pctTxt(r.consAdj)}` : "consumo come da lista");
+  if (cov) parts.push(r.keepMin ? "almeno la SMin" : "SMin non garantita");
+  if (cov || mode === "target") parts.push(r.cap === "none" ? "nessun tetto" : r.cap === "smax" ? "tetto SMax" : `tetto ${fmtM(r.capMonths)} mesi`);
+  if (cov) parts.push(`arrotondamento ${ROUND_L[r.round]}`);
+  const ex = [r.exclNoScorta ? "non a scorta" : "", r.exclOnDemand ? "su richiesta" : "", r.minDemand ? `consumo sotto ${fmtN(r.minDemand, 2)} pz/mese` : "",
+    r.minLine && (cov || mode === "level") ? `righe sotto ${fmtE(r.minLine)}` : ""].filter(Boolean);
+  parts.push(ex.length ? "esclusi: " + ex.join(", ") : "nessuna esclusione");
+  parts.push(`avviso oltre ${fmtM(r.alertMonths)} mesi`);
+  return parts.join(" · ");
+}
+function renderRules(host, mode, onChange) {
+  const r = rules(), cov = mode === "cover", tgt = mode === "target";
+  const hi = Math.max(0, ORIZZ.findIndex(o => o[0] === r.months)), ci = Math.max(0, CAPM.indexOf(r.capMonths));
+  const seg = (name, cur, opts) => `<div class="chips seg" role="group">${opts.map(([v, l]) => `<button type="button" class="chip" data-r="${name}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join("")}</div>`;
+  const off = t => `<p class="small muted">${t}</p>`;
+  host.innerHTML = `<details class="panel rulespanel"${state.rulesOpen ? " open" : ""}><summary><span class="rt">Regole di riordino</span><span class="rs">${esc(rulesText(r, mode))}</span><span class="rlink">${state.rulesOpen ? "Chiudi" : "Modifica"}</span></summary>
+    <p class="small muted">Sono le regole con cui la piattaforma calcola le quantità. Ogni modifica ricalcola subito la proposta e resta salvata per il tuo utente. Tocca una quantità nella tabella per vedere il conto di quella riga.</p>
+    <div class="rgrid">
+      <div class="rctl"><label for="r_h">Orizzonte di copertura <b id="r_hv">${esc(ORIZZ[hi][1])}</b></label>
+        ${cov ? `<input type="range" id="r_h" min="0" max="${ORIZZ.length - 1}" step="1" value="${hi}">` : off(tgt ? "L'ordine di un importo non usa un orizzonte." : "Non usato in questo scenario.")}</div>
+      <div class="rctl"><label for="r_c">Correzione del consumo medio <b id="r_cv">${r.consAdj ? pctTxt(r.consAdj) : "nessuna"}</b></label>
+        <input type="range" id="r_c" min="-50" max="50" step="5" value="${r.consAdj}"><span class="small muted">Per stagionalità o andamento: −20% se il periodo è più lento, +20% se è più vivace.</span></div>
+      <div class="rctl"><span class="rl">Scorta minima</span>${cov ? `<label class="check" for="r_k"><input type="checkbox" id="r_k"${r.keepMin ? " checked" : ""}> Porta sempre almeno alla SMin</label>` : off("Gli altri scenari partono già dalla SMin.")}</div>
+      <div class="rctl"><span class="rl">Tetto per codice</span>${cov || tgt ? seg("cap", r.cap, [["none", "Nessuno"], ["smax", "Non oltre la SMax"], ["months", "Mesi di copertura"]]) : off("Non usato in questo scenario.")}
+        ${(cov || tgt) && r.cap === "months" ? `<label for="r_cm" class="small">Al massimo <b id="r_cmv">${fmtN(CAPM[ci])} ${CAPM[ci] === 1 ? "mese" : "mesi"}</b> di copertura</label><input type="range" id="r_cm" min="0" max="${CAPM.length - 1}" step="1" value="${ci}">` : ""}
+        ${cov && r.keepMin && r.cap !== "none" ? `<span class="small muted">Il tetto non scende mai sotto la SMin.</span>` : ""}</div>
+      <div class="rctl"><span class="rl">Arrotondamento del consumo del periodo</span>${cov ? seg("round", r.round, [["nearest", "Al più vicino"], ["up", "Per eccesso"], ["down", "Per difetto"]]) : off("Non usato in questo scenario.")}</div>
+      <div class="rctl"><span class="rl">Esclusioni</span>
+        <label class="check" for="r_ns"><input type="checkbox" id="r_ns"${r.exclNoScorta ? " checked" : ""}> Codici non tenuti a scorta (SMin e SMax a zero)</label>
+        <label class="check" for="r_od"><input type="checkbox" id="r_od"${r.exclOnDemand ? " checked" : ""}> Codici segnati come su richiesta</label>
+        <div class="row"><label class="field" for="r_md">Consumo sotto (pz/mese)<input type="text" id="r_md" inputmode="decimal" placeholder="nessuna soglia" value="${r.minDemand ? esc(fmtN(r.minDemand, 2)) : ""}"></label>
+        ${cov || mode === "level" ? `<label class="field" for="r_ml">Righe sotto (€)<input type="text" id="r_ml" inputmode="decimal" placeholder="nessuna soglia" value="${r.minLine ? esc(fmtN(r.minLine)) : ""}"></label>` : ""}</div></div>
+      <div class="rctl"><label for="r_al" class="rl">Avviso se la copertura dopo l'ordine supera</label><select id="r_al">${[...new Set([1, 2, 3, 4, 6, 9, 12, r.alertMonths])].sort((a, b) => a - b).map(v => `<option value="${v}"${v === r.alertMonths ? " selected" : ""}>${fmtM(v)} ${v === 1 ? "mese" : "mesi"}</option>`).join("")}</select></div>
+    </div>
+    <div class="row"><button class="btn sm" type="button" id="r_reset">Ripristina i valori iniziali</button><span class="small muted">Valori iniziali: ${esc(rulesText(RULES_DEF, mode))}.</span></div></details>`;
+  const d = $("details", host);
+  d.addEventListener("toggle", () => { state.rulesOpen = d.open; $(".rlink", d).textContent = d.open ? "Chiudi" : "Modifica"; });
+  const set = (k, v, alertOnly) => { if (rules()[k] === v) return; rules()[k] = v; saveRules(); onChange(alertOnly); };
+  const rng = (id, lab, fmt, apply) => { const el = $("#" + id, host); if (!el) return; el.oninput = () => { $("#" + lab, host).textContent = fmt(+el.value); }; el.onchange = () => apply(+el.value); };
+  rng("r_h", "r_hv", v => ORIZZ[v][1], v => set("months", ORIZZ[v][0]));
+  rng("r_c", "r_cv", v => v ? pctTxt(v) : "nessuna", v => set("consAdj", v));
+  rng("r_cm", "r_cmv", v => `${fmtN(CAPM[v])} ${CAPM[v] === 1 ? "mese" : "mesi"}`, v => set("capMonths", CAPM[v]));
+  $$("[data-r]", host).forEach(b => b.onclick = () => set(b.dataset.r, b.dataset.v));
+  const chk = (id, k) => { const el = $("#" + id, host); if (el) el.onchange = () => set(k, el.checked); };
+  chk("r_k", "keepMin"); chk("r_ns", "exclNoScorta"); chk("r_od", "exclOnDemand");
+  const num = (id, k) => { const el = $("#" + id, host); if (el) el.onchange = () => set(k, Math.max(0, parseNum(el.value))); };
+  num("r_md", "minDemand"); num("r_ml", "minLine");
+  $("#r_al", host).onchange = e => set("alertMonths", +e.target.value, true);
+  $("#r_reset", host).onclick = () => { Object.assign(rules(), RULES_DEF); saveRules(); onChange(); };
+}
+/* Il conto di una riga, passo per passo */
+function whyHtml(l, R) {
+  const c = l.calc, n2 = v => fmtN(v, 2), li = [];
+  const mesi = m => `${fmtM(m)} ${m === 1 ? "mese" : "mesi"}`;
+  if (c && c.kind === "cover") {
+    li.push(`Consumo medio dalla lista movimentazione: <b>${n2(c.cons)}</b> pezzi al mese${c.adj ? `, corretto del ${pctTxt(c.adj)}: <b>${n2(c.ce)}</b>` : ""}.`);
+    li.push(`Consumo atteso in ${mesi(c.months)}: ${n2(c.ce)} × ${fmtM(c.months)} = ${n2(c.raw)} pezzi, arrotondati ${ROUND_L[c.round]}: <b>${fmtN(c.rounded)}</b>.`);
+    if (c.keepMin && c.smin > c.rounded) li.push(`La SMin è ${fmtN(c.smin)}: l'obiettivo sale a <b>${fmtN(c.base)}</b>.`);
+    if (c.capped) li.push(`Tetto ${c.cap === "smax" ? "SMax" : `di ${mesi(c.capMonths)} di copertura`}: al massimo ${fmtN(c.limit)} pezzi, l'obiettivo scende a <b>${fmtN(c.target)}</b>.`);
+    li.push(`Obiettivo ${fmtN(c.target)} − disponibile ${fmtN(c.disp)} (giacenza ${fmtN(c.giac)} + ordini aperti ${fmtN(c.ord)}) = <b>${fmtN(c.target - c.disp)} pezzi</b>.`);
+    if (l.partial) li.push(`Il tetto di spesa ha ridotto la riga a <b>${fmtN(l.qty)}</b> pezzi.`);
+  } else {
+    li.push(`Disponibile: ${fmtN(l.disp)} (giacenza ${fmtN(l.giac)} + ordini aperti ${fmtN(l.ord)}); SMin ${fmtN(l.smin)}, SMax ${fmtN(l.smax)}.`);
+    (l.steps || []).forEach(x => li.push(`${esc(x.note.charAt(0).toUpperCase() + x.note.slice(1))}: <b>${fmtN(x.qty)}</b> pezzi.`));
+    if (l.partial) li.push("Riga ridotta perché l'importo era finito.");
+  }
+  if (l.cons_mese > 0) li.push(`Copertura: da ${covTxt(l.cover_before)} a <b>${covTxt(l.cover_after)} mesi</b>${l.cons_eff !== l.cons_mese ? " (con il consumo corretto)" : ""}.`);
+  else li.push("Nessun consumo registrato: la copertura non si può calcolare.");
+  return `<ol>${li.map(x => `<li>${x}</li>`).join("")}</ol>`;
+}
+function whyText(l) { const t = document.createElement("div"); t.innerHTML = whyHtml(l); return [...t.querySelectorAll("li")].map(x => x.textContent).join(" "); }
 const OBIETTIVI = {
   monitor: { t: "Monitoraggio potenziale ordini", d: "Vedo quanto e quando servirà ordinare nell'orizzonte scelto, senza impegni: nessuna conferma riga per riga." },
   plan: { t: "Pianificazione ordini per adeguare le giacenze", d: "Preparo gli ordini che coprono la domanda dell'orizzonte, tenendo almeno la SMin. Confermo ogni riga con Sì o No." },
   target: { t: "Ordine di un importo, a prescindere dalle giacenze", d: "Devo ordinare una cifra precisa anche se il magazzino è coperto: prima i bisogni veri, poi il resto in proporzione alla movimentazione." }
 };
 const W = { step: 1, snapId: null, codesMode: "all", codes: [], lookup: null, listName: "", groups: [], abc: [],
-  purpose: "plan", months: 1, budget: 50000, maxCover: 0, includeNoParams: false, minDemand: 0, listOverride: true };
+  purpose: "plan", budget: 50000, listOverride: true, seq: 0 };
 const orizzLabel = m => (ORIZZ.find(o => o[0] === m) || [0, fmtN(m, 1) + " mesi"])[1];
 async function viewNuovo(main) {
   if (needDealer(main)) return;
@@ -208,7 +300,7 @@ async function viewNuovo(main) {
   if (W.dealer !== state.dealerId) { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [] }); W.dealer = state.dealerId; state.ordine.history = []; }
   main.innerHTML = `<div class="head"><div><h1>Nuovo ordine</h1><p class="sub">${esc(dealerName(state.dealerId))}. Scegli l'obiettivo, carica i dati della settimana, scegli i codici e ottieni il risultato.</p></div></div>
     <ol class="stepper" aria-label="Avanzamento">${WSTEPS.map((t, k) => `<li class="${k + 1 < W.step ? "done" : k + 1 === W.step ? "cur" : ""}"${k + 1 === W.step ? ' aria-current="step"' : ""}><span class="sn">${k + 1 < W.step ? "✓" : k + 1}</span><span class="st">${t}</span></li>`).join("")}</ol>
-    ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(OBIETTIVI[W.purpose].t)}</b>${W.purpose === "target" ? ` · ${esc(fmtE(W.budget))}` : ` · orizzonte ${esc(orizzLabel(W.months))}`} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
+    ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(OBIETTIVI[W.purpose].t)}</b>${W.purpose === "target" ? ` · ${esc(fmtE(W.budget))}` : ` · orizzonte ${esc(orizzLabel(rules().months))}`} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
     <div id="wbody"></div>`;
   if ($("#wchg")) $("#wchg").onclick = () => wGo(main, 1);
   ({ 1: wStep1, 2: wStep2, 3: wStep3, 4: wStep4, 5: wStep5 })[W.step]($("#wbody"), main);
@@ -217,7 +309,7 @@ const wGo = (main, n) => { W.step = n; viewNuovo(main); window.scrollTo(0, 0); }
 
 function wStep1(body, main) {
   const card = (id, inner) => `<label class="choice big${W.purpose === id ? " on" : ""}" for="pp_${id}"><input type="radio" name="pp" id="pp_${id}" value="${id}"${W.purpose === id ? " checked" : ""}><span><b>${OBIETTIVI[id].t}</b><span class="small muted">${OBIETTIVI[id].d}</span><span class="pin">${inner}</span></span></label>`;
-  const hor = id => `<label class="small muted" for="hm_${id}">Orizzonte</label><select id="hm_${id}" data-hor aria-label="Orizzonte temporale">${ORIZZ.map(([v, l]) => `<option value="${v}"${v === W.months ? " selected" : ""}>${l}</option>`).join("")}</select>`;
+  const hor = id => `<label class="small muted" for="hm_${id}">Orizzonte</label><select id="hm_${id}" data-hor aria-label="Orizzonte temporale">${ORIZZ.map(([v, l]) => `<option value="${v}"${v === rules().months ? " selected" : ""}>${l}</option>`).join("")}</select>`;
   body.innerHTML = `<section class="panel"><span class="num mono small muted">PASSO 1 DI 5</span><h2>Qual è l'obiettivo?</h2>
     <div class="choices">
       ${card("monitor", hor("monitor"))}
@@ -229,16 +321,16 @@ function wStep1(body, main) {
   const extra = () => {
     $$(".choice", body).forEach(l => l.classList.toggle("on", $("input", l).checked));
     $("#pextra").innerHTML = W.purpose === "target"
-      ? `<label class="field" for="pmc">Copertura massima per codice (facoltativa)<select id="pmc">${[[0, "nessun limite: raggiungi l'importo"], [6, "6 mesi"], [9, "9 mesi"], [12, "12 mesi"], [18, "18 mesi"], [24, "24 mesi"]].map(([v, l]) => `<option value="${v}"${v === (W.maxCover || 0) ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+      ? `<label class="field" for="pmc">Tetto per codice (facoltativo)<select id="pmc">${[["none", "nessun tetto: raggiungi l'importo"], ["smax", "non oltre la SMax"], ...[6, 9, 12, 18, 24].map(m => [String(m), `al massimo ${m} mesi di copertura`])].map(([v, l]) => `<option value="${v}"${v === (rules().cap === "months" ? String(rules().capMonths) : rules().cap) ? " selected" : ""}>${l}</option>`).join("")}</select></label>
          <p class="small muted">Questo obiettivo non usa un orizzonte: l'importo viene raggiunto comunque, in proporzione alla movimentazione dei codici.</p>`
       : `<p class="small muted">${W.purpose === "monitor" ? "Il risultato mostra il potenziale d'ordine e in quale settimana servirà ordinare ogni codice." : "Il risultato propone le quantità da ordinare per coprire l'orizzonte, da confermare riga per riga, con la spalmatura settimanale."}</p>`;
   };
   $$("input[name=pp]", body).forEach(r => r.onchange = () => { W.purpose = r.value; extra(); });
-  $$("[data-hor]", body).forEach(s => { s.onchange = () => { W.months = +s.value; $$("[data-hor]", body).forEach(x => { x.value = s.value; }); }; s.addEventListener("focus", () => { const r = $("#pp_" + s.id.slice(3)); if (!r.checked) { r.checked = true; W.purpose = r.value; extra(); } }); });
+  $$("[data-hor]", body).forEach(s => { s.onchange = () => { rules().months = +s.value; saveRules(); $$("[data-hor]", body).forEach(x => { x.value = s.value; }); }; s.addEventListener("focus", () => { const r = $("#pp_" + s.id.slice(3)); if (!r.checked) { r.checked = true; W.purpose = r.value; extra(); } }); });
   $("#pt").addEventListener("focus", () => { const r = $("#pp_target"); if (!r.checked) { r.checked = true; W.purpose = "target"; extra(); } });
   extra();
   $("#wnext").onclick = () => {
-    if (W.purpose === "target") { W.budget = parseNum($("#pt").value); if ($("#pmc")) W.maxCover = +$("#pmc").value; if (!(W.budget > 0)) { toast("Indica un importo maggiore di zero."); return; } }
+    if (W.purpose === "target") { W.budget = parseNum($("#pt").value); if ($("#pmc")) { const v = $("#pmc").value; if (v === "none" || v === "smax") rules().cap = v; else { rules().cap = "months"; rules().capMonths = +v; } saveRules(); } if (!(W.budget > 0)) { toast("Indica un importo maggiore di zero."); return; } }
     W.result = null; wGo(main, 2);
   };
 }
@@ -301,8 +393,8 @@ async function wStep4(body, main) {
         <div><p class="flabel">Classe ABC sul consumo</p><div class="chips">${[["A", "A · 80% del consumo"], ["B", "B · 15%"], ["C", "C · 5%"]].map(([k, l]) => `<button type="button" class="chip" data-abc="${k}" aria-pressed="${W.abc.includes(k)}">${l}<span class="n">${fmtN(meta.abc[k])}</span></button>`).join("")}</div></div>
       </div></details>
       <details class="filters"><summary>Codici su richiesta</summary><div class="fgrid">
-        <label class="check" for="pnp"><input type="checkbox" id="pnp"${W.includeNoParams ? "" : " checked"}> Escludi i codici non tenuti a scorta (SMin e SMax a zero)</label>
-        <label class="field" for="pmd">Escludi i codici con consumo medio inferiore a (pezzi al mese)<input type="text" id="pmd" inputmode="decimal" placeholder="nessuna soglia" value="${W.minDemand ? esc(fmtN(W.minDemand, 2)) : ""}"></label>
+        <label class="check" for="pnp"><input type="checkbox" id="pnp"${rules().exclNoScorta ? " checked" : ""}> Escludi i codici non tenuti a scorta (SMin e SMax a zero)</label>
+        <label class="field" for="pmd">Escludi i codici con consumo medio inferiore a (pezzi al mese)<input type="text" id="pmd" inputmode="decimal" placeholder="nessuna soglia" value="${rules().minDemand ? esc(fmtN(rules().minDemand, 2)) : ""}"></label>
         <label class="check" for="pov"><input type="checkbox" id="pov"${W.listOverride ? " checked" : ""}> Per i codici che scelgo io, calcola anche quelli su richiesta o senza SMin/SMax</label>
         <p class="small muted">I codici segnati come su richiesta sono sempre esclusi, salvo l'opzione qui sopra per i codici scelti.</p></div></details>
     </section>
@@ -343,22 +435,25 @@ async function wStep4(body, main) {
   $("#wback").onclick = () => wGo(main, 2);
   $("#wnext").onclick = () => {
     if (W.codesMode !== "all" && !(W.lookup && W.lookup.rows.length)) { toast("Indica almeno un codice presente nei dati della settimana, oppure scegli «Tutti i codici»."); return; }
-    W.includeNoParams = !$("#pnp").checked; W.minDemand = parseNum($("#pmd").value); W.listOverride = $("#pov").checked;
+    rules().exclNoScorta = $("#pnp").checked; rules().minDemand = parseNum($("#pmd").value); saveRules(); W.listOverride = $("#pov").checked;
     W.result = null; wGo(main, 5);
   };
 }
 async function wCompute() {
   const codes = W.codesMode === "all" ? [] : W.lookup.rows.map(r => r.code);
   const mode = W.purpose === "target" ? "target" : "cover";
-  const P = { mode, budget: mode === "target" ? W.budget : 0, cap: 0, months: W.months, keepMin: true, fill: true, maxCover: W.maxCover || 0,
-    includeNoParams: W.includeNoParams, minDemand: W.minDemand, listOverride: W.listOverride, filters: { groups: [...W.groups], abc: [...W.abc], dg: [], q: "", codes } };
+  const RR = rules(), seq = ++W.seq;
+  const P = { mode, budget: mode === "target" ? W.budget : 0, cap: 0, months: RR.months, keepMin: RR.keepMin, fill: true, maxCover: 0,
+    includeNoParams: !RR.exclNoScorta, minDemand: RR.minDemand, listOverride: W.listOverride, rules: RR, filters: { groups: [...W.groups], abc: [...W.abc], dg: [], q: "", codes } };
   const r = await api("POST", `/api/snapshots/${W.snapId}/scenario`, P);
+  if (seq !== W.seq) return false;   // nel frattempo è partito un calcolo più recente
   const scope = [codes.length ? `${fmtN(codes.length)} codici scelti` : "", W.groups.length ? "gruppi " + W.groups.join(", ") : "", W.abc.length ? "classe " + W.abc.join("/") : ""].filter(Boolean).join(" · ");
-  r.title = `${OBIETTIVI[W.purpose].t}${W.purpose === "target" ? ` · ${fmtE(W.budget)}` : ` · orizzonte ${orizzLabel(W.months)}`}${scope ? " · " + scope : ""}`;
+  r.title = `${OBIETTIVI[W.purpose].t}${W.purpose === "target" ? ` · ${fmtE(W.budget)}` : ` · orizzonte ${orizzLabel(RR.months)}`}${scope ? " · " + scope : ""}`;
   r.view = W.purpose;
-  r.horizonWeeks = W.purpose === "target" ? null : Math.max(2, Math.round(W.months * 4.33));
+  r.horizonWeeks = W.purpose === "target" ? null : Math.max(2, Math.round(RR.months * 4.33));
   const O = state.ordine;
   O.result = r; O.show = 100; O.history = [{ title: r.title, s: r.summary, r }].concat((O.history || []).filter(h => h.title !== r.title)).slice(0, 8);
+  return true;
 }
 async function wStep5(body, main) {
   body.innerHTML = `<div class="panel"><p class="muted">Calcolo in corso…</p></div>`;
@@ -366,7 +461,7 @@ async function wStep5(body, main) {
   body.innerHTML = `<div class="wnav top"><span class="num mono small muted">PASSO 5 DI 5 · RISULTATO</span><div class="row">
       <button class="btn sm" type="button" id="wgoal">Cambia obiettivo</button><button class="btn sm" type="button" id="wcodes">Cambia codici</button><button class="btn sm" type="button" id="wnew">Ricomincia</button></div></div>
     <div id="wres"></div><div id="whist"></div>`;
-  const recalc = async () => { await wCompute(); renderProposal("#wres", recalc); renderHistory("#whist", "#wres", recalc); };
+  const recalc = async alertOnly => { if (!alertOnly && !(await wCompute())) return; renderProposal("#wres", recalc); renderHistory("#whist", "#wres", recalc); };
   renderProposal("#wres", recalc); renderHistory("#whist", "#wres", recalc);
   $("#wgoal").onclick = () => wGo(main, 1); $("#wcodes").onclick = () => wGo(main, 4);
   $("#wnew").onclick = () => { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [], listName: "" }); state.ordine.history = []; wGo(main, 1); };
@@ -635,8 +730,8 @@ async function viewOrdine(main) {
   const snaps = state.snapshots.length ? state.snapshots : await loadSnapshots();
   if (!snaps.length) return noWeeks(main);
   const O = state.ordine;
-  O.mode = O.mode || "budget"; O.months = O.months || 1; O.level = O.level || "smin"; O.filters = O.filters || { groups: [], abc: [], dg: [], q: "" }; O.filters.codes = O.filters.codes || []; O.listOverride = O.listOverride !== false;
-  O.history = O.history || []; O.keepMin = O.keepMin !== false; O.cap = O.cap || 0; O.includeNoParams = !!O.includeNoParams; O.minDemand = O.minDemand || 0; O.maxCover = O.maxCover || 0;
+  O.mode = O.mode || "budget"; O.level = O.level || "smin"; O.filters = O.filters || { groups: [], abc: [], dg: [], q: "" }; O.filters.codes = O.filters.codes || []; O.listOverride = O.listOverride !== false;
+  O.history = O.history || []; O.cap = O.cap || 0; O.seq = O.seq || 0;
   if (!snaps.some(s => s.id === O.snapId)) { O.snapId = snaps[snaps.length - 1].id; O.result = null; O.meta = null; O.history = []; }
   if (!O.meta || O.metaSnap !== O.snapId) { O.meta = await api("GET", `/api/snapshots/${O.snapId}/filters`); O.metaSnap = O.snapId; }
   O.flags = await api("GET", `/api/dealers/${state.dealerId}/flags`);
@@ -662,10 +757,9 @@ async function viewOrdine(main) {
         <label class="field" for="fq">Tipologia o codice contiene<input type="search" id="fq" value="${esc(F.q)}" placeholder="es. FILTRO, PASTIGLIE, 123"></label>
         <div><button class="link" type="button" id="fclear">Togli tutti i filtri</button></div>
       </div></details>
-    <details class="filters"><summary>Codici su richiesta: esclusioni (${fmtN(O.flags.length)} segnati a mano)</summary>
+    <details class="filters"><summary>Codici su richiesta (${fmtN(O.flags.length)} segnati a mano)</summary>
       <div class="fgrid">
-        <label class="check" for="onp"><input type="checkbox" id="onp"${O.includeNoParams ? "" : " checked"}> Escludi i codici non tenuti a scorta (SMin e SMax a zero)</label>
-        <label class="field" for="omd">Escludi i codici con consumo medio inferiore a (pezzi al mese, facoltativo)<input type="text" id="omd" inputmode="decimal" placeholder="nessuna soglia" value="${O.minDemand ? esc(fmtN(O.minDemand, 2)) : ""}"></label>
+        <p class="small muted">Le esclusioni dei codici non a scorta, su richiesta o con consumo basso si regolano nel pannello «Regole di riordino», sopra il risultato.</p>
         <div><p class="flabel">Codici segnati come su richiesta</p><p class="small muted">Sono sempre esclusi dagli scenari e dal livello di servizio. Puoi segnarli dalle righe d'ordine, dalla scheda codice o incollandoli qui.</p>
           <div id="flaglist"></div>
           <label class="field" for="fpaste">Incolla codici (uno per riga, oppure separati da spazio o virgola)<textarea id="fpaste" rows="3"></textarea></label>
@@ -680,7 +774,7 @@ async function viewOrdine(main) {
     <li><b>Copro N mesi di domanda</b>: per ogni codice con domanda, ordina quanto serve per coprire il periodo (consumo medio mensile × mesi), tenendo almeno la SMin se scegli l'opzione. Qui si possono riordinare anche codici sopra SMax, se la loro domanda lo giustifica.</li>
     <li><b>Riporto a scorta</b>: riporta tutti i codici filtrati a SMin oppure a SMax.</li>
     <li><b>Raggiungo un obiettivo d'acquisto</b>: per quando bisogna ordinare un importo anche a magazzino coperto. Prima i bisogni veri (a zero, sotto SMin, fino a SMax), poi il resto in anticipo sui codici che ruotano di più, portandoli tutti alla stessa copertura in mesi: le quantità restano proporzionali alla movimentazione, quindi un codice venduto una volta l'anno riceve al più un pezzo, e solo quando la copertura sale abbastanza. L'importo viene raggiunto anche se il magazzino è già alto; la copertura massima è facoltativa.</li>
-    <li><b>Codici su richiesta</b>: sono esclusi quelli segnati a mano dal responsabile, quelli non tenuti a scorta (SMin e SMax a zero) e, se imposti una soglia, quelli con consumo medio troppo basso. Nella copertura la domanda del periodo è arrotondata al pezzo più vicino: sotto mezzo pezzo atteso non si ordina, salvo che serva per arrivare alla SMin.</li>
+    <li><b>Codici su richiesta</b>: sono esclusi quelli segnati a mano dal responsabile, quelli non tenuti a scorta (SMin e SMax a zero) e, se imposti una soglia, quelli con consumo medio troppo basso. Nella copertura il consumo del periodo è arrotondato come scelto nelle regole (all'inizio) al pezzo più vicino: sotto mezzo pezzo atteso non si ordina, salvo che serva per arrivare alla SMin.</li>
     <li>Quando c'è un tetto di spesa, l'ordine di priorità è sempre: codici a zero, sotto SMin, poi gli altri; a parità vincono domanda più alta rispetto al costo e persistenza sotto scorta. Fermi e codici senza storico sono sempre esclusi.</li>
     <li>La <b>domanda</b> è il consumo medio mensile in pezzi della lista movimentazione. L'indice di regolarità delle vendite (da 0 a 12) è mostrato accanto al consumo come informazione: non entra nelle quantità.</li></ul></section>`;
   const renderParams = () => {
@@ -688,11 +782,10 @@ async function viewOrdine(main) {
     if (O.mode === "budget") p.innerHTML = `<label class="field" for="ob">Budget in euro<input type="text" id="ob" inputmode="decimal" value="${esc(fmtN(O.budget))}"></label>
       <div class="chips">${[10000, 25000, 50000, 100000].map(v => `<button class="chip" type="button" data-b="${v}">${fmtE(v)}</button>`).join("")}</div>
       <label class="check" for="ofill"><input type="checkbox" id="ofill"${O.fill ? " checked" : ""}> Se avanza budget, porta i codici fino alla SMax</label>`;
-    else if (O.mode === "cover") p.innerHTML = `<label class="field" for="om">Periodo da coprire<select id="om">${MESI.map(([v, l]) => `<option value="${v}"${v === O.months ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label class="check" for="okeep"><input type="checkbox" id="okeep"${O.keepMin ? " checked" : ""}> Tieni almeno la SMin</label>
+    else if (O.mode === "cover") p.innerHTML = `<p class="small muted">Orizzonte, scorta minima, tetto e arrotondamento: pannello «Regole di riordino», sopra il risultato.</p>
       <label class="field" for="ocap">Tetto di spesa (facoltativo)<input type="text" id="ocap" inputmode="decimal" placeholder="nessuno" value="${O.cap ? esc(fmtN(O.cap)) : ""}"></label>`;
     else if (O.mode === "target") p.innerHTML = `<label class="field" for="ob">Importo da ordinare in euro<input type="text" id="ob" inputmode="decimal" value="${esc(fmtN(O.budget))}"></label>
-      <label class="field" for="omc">Copertura massima per codice (facoltativa)<select id="omc">${[[0, "nessun limite: raggiungi l'importo"], [6, "6 mesi"], [9, "9 mesi"], [12, "12 mesi"], [18, "18 mesi"], [24, "24 mesi"]].map(([v, l]) => `<option value="${v}"${v === O.maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>`;
+      <p class="small muted">Il tetto per codice si regola nel pannello «Regole di riordino».</p>`;
     else p.innerHTML = `<label class="field" for="olv">Livello da raggiungere<select id="olv"><option value="smin"${O.level === "smin" ? " selected" : ""}>SMin</option><option value="smax"${O.level === "smax" ? " selected" : ""}>SMax</option></select></label>
       <label class="field" for="ocap">Tetto di spesa (facoltativo)<input type="text" id="ocap" inputmode="decimal" placeholder="nessuno" value="${O.cap ? esc(fmtN(O.cap)) : ""}"></label>`;
     $$("[data-b]", p).forEach(b => b.onclick = () => { $("#ob").value = fmtN(+b.dataset.b); $("#of").requestSubmit(); });
@@ -700,13 +793,9 @@ async function viewOrdine(main) {
   const readParams = () => {
     if ($("#ob")) O.budget = parseNum($("#ob").value);
     if ($("#ofill")) O.fill = $("#ofill").checked;
-    if ($("#om")) O.months = +$("#om").value;
-    if ($("#okeep")) O.keepMin = $("#okeep").checked;
     if ($("#olv")) O.level = $("#olv").value;
     if ($("#ocap")) O.cap = parseNum($("#ocap").value);
-    if ($("#omc")) O.maxCover = +$("#omc").value;
     F.q = $("#fq").value.trim();
-    O.includeNoParams = !$("#onp").checked; O.minDemand = parseNum($("#omd").value);
     F.codes = splitCodes($("#lpaste").value); O.listOverride = $("#lover").checked;
   };
   renderParams(); renderFlags();
@@ -737,12 +826,14 @@ async function viewOrdine(main) {
   $("#of").onsubmit = async e => {
     e.preventDefault(); readParams();
     if ((O.mode === "budget" || O.mode === "target") && !(O.budget > 0)) { toast("Indica un importo maggiore di zero."); return; }
-    const P = { mode: O.mode, budget: O.mode === "budget" || O.mode === "target" ? O.budget : O.cap, maxCover: O.maxCover, cap: O.cap, months: O.months, level: O.level, fill: O.fill, keepMin: O.keepMin,
-      includeNoParams: O.includeNoParams, minDemand: O.minDemand, listOverride: O.listOverride,
+    const RR = rules(), seq = ++O.seq;
+    const P = { mode: O.mode, budget: O.mode === "budget" || O.mode === "target" ? O.budget : O.cap, maxCover: 0, cap: O.cap, months: RR.months, level: O.level, fill: O.fill, keepMin: RR.keepMin,
+      includeNoParams: !RR.exclNoScorta, minDemand: RR.minDemand, listOverride: O.listOverride, rules: RR,
       filters: { groups: [...F.groups], abc: [...F.abc], dg: [...F.dg], q: F.q, codes: [...F.codes] } };
     $("#ores").innerHTML = `<div class="panel"><p class="muted">Calcolo in corso…</p></div>`;
     try {
       const r = await api("POST", `/api/snapshots/${O.snapId}/scenario`, P);
+      if (seq !== O.seq) return;
       r.title = describeScenario({ ...P, budget: O.budget });
       O.result = r; O.show = 100; O.history = [{ title: r.title, s: r.summary, r }].concat(O.history.filter(h => h.title !== r.title)).slice(0, 8);
       renderProposal(); renderHistory();
@@ -777,7 +868,7 @@ function renderHistory(sel = "#ohist", resSel = "#ores", recalc) {
  */
 function phaseLines(lines, weeks, freq) {
   return lines.map(l => {
-    const sched = new Array(weeks).fill(0), d = (l.cons_mese || 0) * 12 / 52, disp = l.giac + l.ord;
+    const sched = new Array(weeks).fill(0), d = (l.cons_eff != null ? l.cons_eff : l.cons_mese || 0) * 12 / 52, disp = l.giac + l.ord;
     if (!(d > 0)) { sched[0] = l.qty; return { l, sched, later: 0 }; }
     const urgent = Math.min(l.qty, Math.max(0, Math.ceil(l.smin - disp)));
     let rest = l.qty - urgent, s = disp + urgent; sched[0] = urgent;
@@ -826,6 +917,7 @@ function renderProposal(sel = "#ores", recalc) {
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
   const capped = S.budget != null && S.spent + 0.01 < S.need;
   host.innerHTML = `<div class="scen-title"><h2>${esc(R.title)}</h2></div>
+  <div id="rbox"></div>
   <section class="tiles">
     <div class="tile"><span class="k">${R.view === "monitor" ? "Potenziale d'ordine" : "Valore dell'ordine"}</span><span class="v">${fmtE(S.spent)}</span><span class="s">${S.budget != null ? `su ${fmtE(S.budget)} · ${S.mode === "target" ? "restano" : "avanzano"} ${fmtE(S.left)}` : S.mode === "cover" ? `per coprire ${esc((MESI.find(m => m[0] === S.months) || ORIZZ.find(m => m[0] === S.months) || [0, fmtN(S.months, 1) + " mesi"])[1])} di domanda` : "senza tetto di spesa"}</span></div>
     <div class="tile neutral"><span class="k">Righe d'ordine</span><span class="v">${fmtN(S.n_lines)}</span><span class="s">${fmtN(S.pieces)} pezzi · ${fmtN(S.n_cands)} codici nel perimetro</span></div>
@@ -833,15 +925,16 @@ function renderProposal(sel = "#ores", recalc) {
     <div class="tile warn"><span class="k">Sotto scorta coperti</span><span class="v">${fmtN(S.sotto_cov)}<span class="small muted"> / ${fmtN(S.sotto_tot)}</span></span><span class="s">${pct(S.sotto_cov, S.sotto_tot)} riportati almeno a SMin</span></div>
   </section>
   ${S.list ? `<div class="msg">Elenco di ${fmtN(S.list.n)} codici: ${fmtN(S.list.found)} trovati nella settimana, ${fmtN(S.list.n_missing)} non trovati${S.list.no_need ? `, ${fmtN(S.list.no_need)} già coperti o senza fabbisogno` : ""}.${S.list.n_missing ? `<br><span class="small">Non trovati: <span class="mono">${S.list.missing.map(esc).join(", ")}${S.list.n_missing > S.list.missing.length ? "…" : ""}</span></span>` : ""}</div>` : ""}
-  ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low) ? `<div class="msg">Esclusi come su richiesta: ${[S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati a mano` : "", S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con domanda ma senza SMin/SMax` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
+  ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low + (S.excluded.minline || 0)) ? `<div class="msg">Esclusi dalle regole: ${[S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati su richiesta` : "", S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con consumo ma senza SMin/SMax` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : "", S.excluded.minline ? `${fmtN(S.excluded.minline)} righe sotto il valore minimo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
   ${S.target ? `<div class="msg ${S.target.capped ? "err" : ""}">${S.target.n ? `<b>${fmtE(S.target.value)}</b> su ${fmtN(S.target.n)} codici sono <b>acquisti in anticipo per l'obiettivo</b>: i codici con domanda sono stati portati tutti a circa <b>${fmtN(S.target.level, 1)} mesi</b> di copertura, in proporzione a quanto si vendono.` : (S.left < Math.max(1, (S.budget || 0) * 0.01) ? `Tutto l'importo è servito per i bisogni veri (codici a zero e sotto scorta): non è rimasto nulla da distribuire in anticipo.` : `Nessun acquisto in anticipo possibile con i codici e i limiti scelti.`)}
     ${S.target.capped ? (S.target.max_cover ? `<br>Senza superare ${fmtN(S.target.max_cover)} mesi di copertura restano da spendere <b>${fmtE(S.target.unspent)}</b>: togli o alza la copertura massima, oppure allarga i codici.` : `<br>Non ci sono abbastanza codici con domanda per spendere tutto: restano <b>${fmtE(S.target.unspent)}</b>. Allarga i codici o i filtri.`) : ""}</div>` : ""}
   ${capped && S.mode !== "target" ? `<div class="msg">Lo scenario completo, senza tetto, varrebbe <b>${fmtE(S.need)}</b>: il budget ne copre il ${pct(S.spent, S.need)}.</div>` : ""}
   ${S.by_group.length > 1 ? `<section class="panel"><h3>Valore dell'ordine per gruppo principale</h3><div id="obg"></div></section>` : ""}
   ${R.lines.length ? `<section class="panel" id="odec"></section>${R.view === "target" ? "" : `<section class="panel" id="phase"></section>`}` : `<section class="panel"><p class="muted">Nessun codice da ordinare in questo scenario.</p></section>`}`;
+  renderRules($("#rbox", host), S.mode, alertOnly => { if (alertOnly) { renderProposal(sel, recalc); return; } if (recalc) recalc(); else $("#of").requestSubmit(); });
   if ($("#phase", host)) renderPhase($("#phase", host), R);
   if ($("#obg", host)) bars($("#obg", host), S.by_group.map(g => ({ label: `${g.id === "X" ? "–" : g.id} ${g.label}`, value: g.value, sub: `${fmtN(g.n)} righe` })), { fmt: fmtE });
-  if ($("#odec", host)) renderDecision($("#odec", host), R, recalc);
+  if ($("#odec", host)) renderDecision($("#odec", host), R, recalc, sel);
 }
 
 /* ============ Tabella di conferma: Sì / No per riga ============ */
@@ -857,7 +950,7 @@ function moveCells(l) {
   const v = l.prev_giac == null ? null : l.giac - l.prev_giac;
   return `<td class="num">${l.qty_sold != null ? fmtN(l.qty_sold) : "–"}${l.ven_spc ? `<span class="sub">spec. ${fmtN(l.ven_spc)}</span>` : ""}</td>
         <td class="num">${l.last_sale ? esc(dIt(l.last_sale)) : "–"}</td>
-        <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 1)}</span>` : ""}</td>
+        <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.cons_eff != null && l.cons_mese && Math.abs(l.cons_eff - l.cons_mese) > 1e-9 ? `<span class="sub">considerato ${fmtN(l.cons_eff, 2)}</span>` : ""}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 1)}</span>` : ""}</td>
         <td class="num">${v == null ? "–" : v === 0 ? "=" : (v > 0 ? "+" : "") + fmtN(v)}${l.prev_giac != null ? `<span class="sub">prima ${fmtN(l.prev_giac)}</span>` : ""}</td>`;
 }
 const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 12">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto alla settimana caricata prima">Var. giacenza</th>`;
@@ -870,7 +963,7 @@ function freezeTable(t) {
   const start = ths.findIndex(th => th.hasAttribute("data-fzstart"));
   const apply = () => {
     if (!t.isConnected) return;
-    const rows = [...t.rows];
+    const rows = [...t.rows].filter(r => !r.classList.contains("whyrow"));
     rows.forEach(r => [...r.cells].forEach(c => { c.classList.remove("fz", "fz-l-edge", "fz-r-edge"); c.style.left = ""; c.style.right = ""; }));
     if (t.scrollWidth <= box.clientWidth + 1) return;
     const w = ths.map(th => th.getBoundingClientRect().width), nLeft = 2;
@@ -892,13 +985,18 @@ function freezeTable(t) {
 }
 let freezeTimer;
 window.addEventListener("resize", () => { clearTimeout(freezeTimer); freezeTimer = setTimeout(() => { if (freezeActive) freezeActive(); }, 150); });
-function renderDecision(host, R, recalc) {
+function renderDecision(host, R, recalc, sel = "#ores") {
   const O = state.ordine, ro = R.view === "monitor";
-  O.alertMonths = O.alertMonths || 3;
-  if (!R.dec) { R.dec = {}; try { const sv = localStorage.getItem(decKey(R)); if (sv) R.dec = JSON.parse(sv) || {}; } catch (e) {} }
-  const saveDec = () => { try { localStorage.setItem(decKey(R), JSON.stringify(R.dec)); } catch (e) {} };
+  // le decisioni restano legate alla quantità: se le regole cambiano la quantità, la riga torna da decidere
+  if (!R.dec) {
+    R.dec = {}; R.decq = {};
+    try { const sv = JSON.parse(localStorage.getItem(decKey(R)) || "null"); if (sv && sv.dec) { R.dec = sv.dec; R.decq = sv.q || {}; } else if (sv) R.dec = sv; } catch (e) {}
+    const qty = new Map(R.lines.map(l => [l.code, l.qty]));
+    Object.keys(R.dec).forEach(c => { if (R.decq[c] != null && R.decq[c] !== qty.get(c)) { delete R.dec[c]; delete R.decq[c]; } });
+  }
+  const saveDec = () => { R.decq = Object.fromEntries(R.lines.filter(l => R.dec[l.code]).map(l => [l.code, l.qty])); try { localStorage.setItem(decKey(R), JSON.stringify({ dec: R.dec, q: R.decq })); } catch (e) {} };
   R.decFilter = R.decFilter || "tutte"; R.decShow = R.decShow || 100;
-  const th = O.alertMonths;
+  const th = rules().alertMonths;
   let when = null;
   if (ro) {
     const wk = R.horizonWeeks || 4, ph = phaseLines(R.lines, wk, 1), dates = weekDates(R.week, wk);
@@ -912,8 +1010,8 @@ function renderDecision(host, R, recalc) {
   const grpTxt = l => `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim();
   const filters = ro ? [["tutte", "Tutte"], ["subito", "Da ordinare subito"], ["alert", "Con avviso"]] : [["tutte", "Tutte"], ["alert", "Con avviso"], ["todo", "Da decidere"], ["si", "Accettate"], ["no", "Rifiutate"]];
   host.innerHTML = `<div class="bar"><div><h2>${ro ? "Potenziale d'ordine per codice" : "Proposta d'acquisto da confermare"}</h2><p class="small muted">${ro
-      ? "Sola consultazione: per ogni codice la quantità che servirà nell'orizzonte e la settimana in cui conviene ordinarla. Il motivo compare passando sulla descrizione."
-      : "Per ogni riga scegli <b>Sì</b> o <b>No</b> nell'ultima colonna. Codice e colonne da «Proposta» in poi restano fermi mentre scorri la tabella. Il motivo della proposta compare passando sulla descrizione. Quando hai deciso tutte le righe puoi scaricare l'ordine confermato in Excel o PDF."}</p></div>
+      ? "Sola consultazione: per ogni codice la quantità che servirà nell'orizzonte e la settimana in cui conviene ordinarla. Tocca una quantità per vedere come è stata calcolata."
+      : "Per ogni riga scegli <b>Sì</b> o <b>No</b> nell'ultima colonna. Codice e colonne da «Proposta» in poi restano fermi mentre scorri la tabella. Tocca una quantità per vedere come è stata calcolata. Quando hai deciso tutte le righe puoi scaricare l'ordine confermato in Excel o PDF."}</p></div>
       <label class="field" for="alth">Avviso se la copertura dopo l'ordine supera<select id="alth">${[1, 2, 3, 4, 6, 9, 12].map(v => `<option value="${v}"${v === th ? " selected" : ""}>${v} ${v === 1 ? "mese" : "mesi"}</option>`).join("")}</select></label></div>
     <div class="decsum">${ro
       ? `<div><span class="k">Codici con potenziale</span><b>${fmtN(cnt.tutte)}</b></div><div><span class="k">Valore potenziale</span><b>${fmtN(accQ)} pezzi · ${fmtE(accV)}</b></div>
@@ -932,21 +1030,22 @@ function renderDecision(host, R, recalc) {
         ${moveCells(l)}
         <td class="num">${l.listino != null ? fmtE2(l.listino) : "–"}</td><td class="num">${fmtE2(l.cost)}</td>
         <td class="num">${covTxt(l.cover_before)}${l.cover_before != null ? " mesi" : ""}</td>
-        <td class="num"><b>${fmtN(l.qty)}</b>${l.partial ? `<span class="sub">parziale</span>` : ""}</td><td class="num">${fmtE2(l.value)}</td>
+        <td class="num"><button type="button" class="qbtn" data-why="${esc(l.code)}" aria-expanded="${R.why === l.code}" title="Come è calcolata">${fmtN(l.qty)}</button>${l.partial ? `<span class="sub">parziale</span>` : ""}</td><td class="num">${fmtE2(l.value)}</td>
         <td class="num">${covTxt(l.cover_after)}${l.cover_after != null ? " mesi" : ""}</td>
         ${ro ? `<td class="small">${w ? (w.k === 0 ? `<b>Subito</b><span class="sub">sett. ${isoWeek(w.d)}</span>` : `Sett. ${isoWeek(w.d)}<span class="sub">${esc(dIt(w.d))}</span>`) : `<span class="muted">oltre l'orizzonte</span>`}</td>` : ""}
         <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(al[0].startsWith("Nessuna") ? "Senza domanda" : "Oltre " + fmtN(th) + " mesi")}</span>` : ""}</td>
         <td><button class="link small" type="button" data-od="${esc(l.code)}" title="Escludi questo codice da tutti gli scenari">su richiesta</button></td>
-        ${ro ? "" : `<td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td>`}</tr>`).join("")}
+        ${ro ? "" : `<td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td>`}</tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="19"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
     </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
     <div class="decexp">${ro
       ? `<div class="small muted">Per trasformare il potenziale in un ordine, scegli l'obiettivo «Pianificazione ordini per adeguare le giacenze».</div><div class="row"><button class="btn primary" type="button" id="oxls">Scarica in Excel</button><button class="btn primary" type="button" id="dpdf">Scarica in PDF</button></div>`
       : `<div class="small muted" id="dexpmsg">${cnt.todo ? `Mancano <b>${fmtN(cnt.todo)}</b> righe da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${fmtN(cnt.si)} righe, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
       <div class="row"><button class="btn primary" type="button" id="dxls"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in Excel</button><button class="btn primary" type="button" id="dpdf"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in PDF</button><button class="btn" type="button" id="oxls">Proposta completa in Excel</button></div>`}</div>`;
   freezeTable($("table.dectab", host));
-  const rer = () => renderDecision(host, R, recalc);
-  $("#alth", host).onchange = e => { O.alertMonths = +e.target.value; rer(); };
+  const rer = () => renderDecision(host, R, recalc, sel);
+  $("#alth", host).onchange = e => { rules().alertMonths = +e.target.value; saveRules(); renderProposal(sel, recalc); };
   $$("[data-df]", host).forEach(b => b.onclick = () => { R.decFilter = b.dataset.df; R.decShow = 100; rer(); });
+  $$("[data-why]", host).forEach(b => b.onclick = () => { R.why = R.why === b.dataset.why ? null : b.dataset.why; rer(); });
   $$("[data-yn]", host).forEach(b => b.onclick = () => { const c = b.dataset.code; R.dec[c] = R.dec[c] === b.dataset.yn ? "" : b.dataset.yn; if (!R.dec[c]) delete R.dec[c]; saveDec(); rer(); });
   $$("[data-bulk]", host).forEach(b => b.onclick = async () => {
     const k = b.dataset.bulk;
@@ -969,14 +1068,14 @@ function renderDecision(host, R, recalc) {
   if ($("#dpdf", host)) $("#dpdf", host).onclick = () => exportConfirmedPdf(R, rows, ro ? "Potenziale ordini" : "Ordine confermato");
 }
 function confirmedRows(rows) {
-  const th = state.ordine.alertMonths || 3;
+  const th = rules().alertMonths;
   return rows.filter(r => r.d === "si").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "DG": l.dg || "",
     "Giacenza attuale": l.giac, "Ordini aperti": l.ord, "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "",
     "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-12)": l.regolarita || "", "Giacenza settimana precedente": l.prev_giac != null ? l.prev_giac : "",
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost,
     "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità": l.qty,
     "Valore netto": Math.round(l.value * 100) / 100, "Valore listino": l.listino != null ? Math.round(l.listino * l.qty * 100) / 100 : "",
-    "Copertura dopo (mesi)": l.cover_after == null ? "" : Math.round(l.cover_after * 10) / 10, "Avviso": al.join(" · ") }));
+    "Copertura dopo (mesi)": l.cover_after == null ? "" : Math.round(l.cover_after * 10) / 10, "Avviso": al.join(" · "), "Come è calcolata": whyText(l) }));
 }
 function orderMeta(R, rows) {
   const u = state.me.user, accepted = rows ? rows.filter(r => r.d === "si").map(r => r.l) : R.lines.filter(l => R.dec[l.code] === "si");
@@ -995,24 +1094,25 @@ function exportConfirmedXls(R, rows) {
   const cal = []; dates.forEach((d, w) => ph.forEach(x => { if (x.sched[w]) cal.push({ "Settimana": lab(d), "Codice": x.l.code, "Descrizione": x.l.descr, "Quantità": x.sched[w], "Valore netto": Math.round(x.sched[w] * x.l.cost * 100) / 100 }); }));
   ph.forEach(x => { if (x.later) cal.push({ "Settimana": state.ordine.result && R.summary.mode === "target" ? "Anticipo obiettivo" : "Oltre l'orizzonte", "Codice": x.l.code, "Descrizione": x.l.descr, "Quantità": x.later, "Valore netto": Math.round(x.later * x.l.cost * 100) / 100 }); });
   if (cal.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cal), "Calendario ordini");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati della", M.week], ["Scenario", M.scen], ["Confermato da", M.user], ["Data", M.date],
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati della", M.week], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
     ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
   XLSX.writeFile(wb, `ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.xlsx`);
 }
 function exportConfirmedPdf(R, rows, title = "Ordine confermato") {
   if (!window.jspdf || !window.jspdf.jsPDF) { toast("Il generatore PDF non si è caricato: ricarica la pagina."); return; }
   const M = orderMeta(R, rows), doc = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const th = state.ordine.alertMonths || 3, W = doc.internal.pageSize.getWidth();
+  const th = rules().alertMonths, W = doc.internal.pageSize.getWidth();
   doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.text(title, 14, 16);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(80);
   doc.text([`Concessionaria: ${M.dealer}`, `Dati della ${M.week}`, `${M.scen}`, `${title === "Ordine confermato" ? "Confermato" : "Estratto"} da ${M.user} il ${M.date}`], 14, 23);
+  doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
   const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac),
     [l.qty_sold != null ? fmtN(l.qty_sold) : "", l.last_sale ? dIt(l.last_sale) : ""].filter(Boolean).join(" · ") || "–", l.listino != null ? fmtE2(l.listino) : "–", fmtE2(l.cost),
     covTxt(l.cover_before), fmtN(l.qty), fmtE2(l.value), covTxt(l.cover_after), al.length ? (al[0].startsWith("Nessuna") ? "Senza domanda" : `Oltre ${fmtN(th)} mesi`) : ""]);
   doc.autoTable({
-    startY: 43, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
+    startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
     foot: [["Totale", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
     styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
     columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 48 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right", fontStyle: "bold" }, 9: { halign: "right" }, 10: { halign: "right" }, 11: { textColor: [198, 40, 40] } },
@@ -1031,14 +1131,14 @@ function exportProposalXls(R, when) {
     "SMin": l.smin, "SMax": l.smax, "Consumo medio mensile": l.cons_mese, "Regolarità vendite (0-12)": l.regolarita,
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost, "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità proposta": l.qty,
     "Parziale": l.partial ? "Sì" : "", "Copertura dopo (mesi)": l.cover_after == null ? "" : Math.round(l.cover_after * 10) / 10,
-    "Valore netto": Math.round(l.value * 100) / 100, "Cumulato": Math.round(l.cum * 100) / 100, "Motivo": l.reasons.join(", "), ...(when ? { "Quando ordinare": when.get(l.code) ? (when.get(l.code).k === 0 ? "Subito" : `Sett. ${isoWeek(when.get(l.code).d)} (${dIt(when.get(l.code).d)})`) : "Oltre l'orizzonte" } : { "Decisione": R.dec && R.dec[l.code] ? (R.dec[l.code] === "si" ? "Sì" : "No") : "" }) }));
+    "Valore netto": Math.round(l.value * 100) / 100, "Cumulato": Math.round(l.cum * 100) / 100, "Motivo": l.reasons.join(", "), "Come è calcolata": whyText(l), ...(when ? { "Quando ordinare": when.get(l.code) ? (when.get(l.code).k === 0 ? "Subito" : `Sett. ${isoWeek(when.get(l.code).d)} (${dIt(when.get(l.code).d)})`) : "Oltre l'orizzonte" } : { "Decisione": R.dec && R.dec[l.code] ? (R.dec[l.code] === "si" ? "Sì" : "No") : "" }) }));
   const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(k => ({ wch: Math.max(10, k.length + 2) }));
   XLSX.utils.book_append_sheet(wb, ws, "Proposta");
   const P = state.ordine.phase || { weeks: 4, freq: 1 }, ph = phaseLines(R.lines, P.weeks, P.freq), dates = weekDates(R.week, P.weeks), lab = s => `Sett. ${isoWeek(s)} (${dIt(s)})`;
   const wide = ph.map(x => { const o = { "Codice": x.l.code, "Descrizione": x.l.descr, "Totale": x.l.qty }; dates.forEach((d, w) => { o[lab(d)] = x.sched[w] || ""; }); o[S.mode === "target" ? "Anticipo obiettivo" : "Non necessario per ora"] = x.later || ""; return o; });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(wide), "Spalmatura");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Settimana", weekLabel(R.week)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Settimana", weekLabel(R.week)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
   XLSX.writeFile(wb, `proposta_${dealerName(state.dealerId).replace(/[^\w\-]+/g, "_")}_${R.week}_${S.mode}.xlsx`);
 }
 

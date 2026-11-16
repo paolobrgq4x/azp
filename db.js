@@ -89,6 +89,8 @@ BEGIN
   END IF;
 END $$;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS listino float8;
+-- Regole di riordino scelte da ogni utente (null = valori iniziali)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rules jsonb;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS qty_sold float8;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS last_sale date;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS ven_spc float8;

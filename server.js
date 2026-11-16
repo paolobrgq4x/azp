@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { pool, migrate, tx } = require("./db");
-const { cross, scenario, filterValues, kpis } = require("./logic");
+const { cross, scenario, filterValues, kpis, cleanRules } = require("./logic");
 
 const PORT = process.env.PORT || 10000;
 const PROD = process.env.NODE_ENV === "production";
@@ -71,7 +71,7 @@ async function loadUser(req) {
   const sid = parseCookies(req.headers.cookie).sid;
   if (!sid) return null;
   const { rows } = await pool.query(
-    `SELECT u.id, u.username, u.full_name, u.role, u.dealer_id, u.must_change, d.name AS dealer_name
+    `SELECT u.id, u.username, u.full_name, u.role, u.dealer_id, u.must_change, u.rules, d.name AS dealer_name
        FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN dealers d ON d.id = u.dealer_id
       WHERE s.token_hash = $1 AND s.expires_at > now() AND u.active`, [sha(sid)]);
   return rows[0] || null;
@@ -133,7 +133,14 @@ app.get("/api/me", auth(), wrap(async (req, res) => {
   const { rows } = u.role === "admin"
     ? await pool.query("SELECT id, name, code FROM dealers ORDER BY name")
     : await pool.query("SELECT id, name, code FROM dealers WHERE id = $1", [u.dealer_id]);
-  res.json({ user: u, dealers: rows });
+  res.json({ user: { ...u, rules: cleanRules(u.rules) }, dealers: rows });
+}));
+
+// Regole di riordino dell'utente collegato: ognuno le sceglie per sé
+app.put("/api/me/rules", small, auth(), wrap(async (req, res) => {
+  const rules = cleanRules(req.body && req.body.rules);
+  await pool.query("UPDATE users SET rules = $1 WHERE id = $2", [JSON.stringify(rules), req.user.id]);
+  res.json({ rules });
 }));
 
 app.post("/api/password", small, auth(), wrap(async (req, res) => {
@@ -382,9 +389,11 @@ app.post("/api/snapshots/:id/scenario", express.json({ limit: "5mb" }), auth(), 
     dg: arr(b.filters && b.filters.dg, /^.{1,20}$/), q: String((b.filters && b.filters.q) || "").slice(0, 60),
     codes: [...new Set((Array.isArray(b.filters && b.filters.codes) ? b.filters.codes : []).map(normCode).filter(Boolean))].slice(0, 50000) };
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
-  res.json({ week: s.week_date, ...scenario(rows, { mode, budget, months: +b.months, level: b.level === "smax" ? "smax" : "smin", fill: b.fill !== false, keepMin: b.keepMin !== false,
-    includeNoParams: b.includeNoParams === true, listOverride: b.listOverride !== false,
-    maxCover: +b.maxCover > 0 ? +b.maxCover : 0, minRot: 0, minDemand: Math.min(1000, Math.max(0, +b.minDemand || 0)), flagged: fl, filters }) });
+  // regole: quelle inviate con la richiesta, altrimenti quelle salvate dall'utente
+  const rules = cleanRules(b.rules || req.user.rules);
+  res.json({ week: s.week_date, ...scenario(rows, { mode, budget, months: +b.months || rules.months, level: b.level === "smax" ? "smax" : "smin", fill: b.fill !== false, keepMin: b.keepMin != null ? b.keepMin !== false : rules.keepMin,
+    includeNoParams: b.includeNoParams != null ? b.includeNoParams === true : !rules.exclNoScorta, listOverride: b.listOverride !== false,
+    maxCover: +b.maxCover > 0 ? +b.maxCover : 0, minRot: 0, minDemand: b.minDemand != null ? Math.min(1000, Math.max(0, +b.minDemand || 0)) : rules.minDemand, flagged: fl, filters, rules }) });
 }));
 
 app.post("/api/snapshots/:id/lookup", express.json({ limit: "5mb" }), auth(), wrap(async (req, res) => {

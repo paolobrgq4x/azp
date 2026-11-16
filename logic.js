@@ -145,10 +145,14 @@ function scenario(items, p) {
     && (!f.abc || !f.abc.length || f.abc.includes(abc.get(i.code) || "N"))
     && (!q || i.code.includes(q) || String(i.descr || "").toUpperCase().includes(q));
   const tierOf = i => { const d = i.giac + i.ord; return d <= 0 && i.smin > 0 ? 1 : d < i.smin ? 2 : d < i.smax ? 3 : 4; };
-  const months = Math.min(24, Math.max(0.25, +p.months || 1));
-  const flagged = p.flagged || new Set();
-  const minDemand = Math.max(0, +p.minDemand || 0);
-  const excluded = { flag: 0, noparams: 0, low: 0 };
+  const R = cleanRules(p.rules);
+  const months = Math.min(24, Math.max(0.25, +p.months || R.months));
+  const flagged = R.exclOnDemand ? (p.flagged || new Set()) : new Set();
+  const minDemand = p.minDemand != null ? Math.max(0, +p.minDemand || 0) : R.minDemand;
+  const keepMin = p.keepMin != null ? p.keepMin !== false : R.keepMin;
+  const includeNoParams = p.includeNoParams != null ? p.includeNoParams === true : !R.exclNoScorta;
+  const k = 1 + R.consAdj / 100, roundFn = ROUND[R.round];
+  const excluded = { flag: 0, noparams: 0, low: 0, minline: 0 };
 
   const cands = [];
   for (const i of items) {
@@ -158,10 +162,10 @@ function scenario(items, p) {
     // Codici su richiesta: segnati dal responsabile, senza SMin e SMax, o con consumo sotto soglia
     const forced = list && p.listOverride;   // codici scelti esplicitamente: niente esclusioni automatiche
     if (flagged.has(i.code) && !forced) { if (i.smin > 0 || i.cons_mese > 0) excluded.flag++; continue; }
-    if (i.smin === 0 && i.smax === 0 && !p.includeNoParams && !forced) { if (p.mode === "cover" && i.cons_mese > 0) excluded.noparams++; continue; }
+    if (i.smin === 0 && i.smax === 0 && !includeNoParams && !forced) { if (p.mode === "cover" && i.cons_mese > 0) excluded.noparams++; continue; }
     if (minDemand > 0 && i.cons_mese < minDemand) { excluded.low++; continue; }   // soglia in pezzi al mese
     const persist = i.status === "sotto" ? 1 + 0.15 * Math.min(Math.max(i.streak - 1, 0), 6) : 1;
-    cands.push({ ...i, tier: tierOf(i), disp: i.giac + i.ord, cls: abc.get(i.code) || "N", grp: mainGroup(i.code),
+    cands.push({ ...i, cons_eff: i.cons_mese * k, tier: tierOf(i), disp: i.giac + i.ord, cls: abc.get(i.code) || "N", grp: mainGroup(i.code),
       score: (i.cons_mese > 0 ? annuo(i) : 0.5) * persist / Math.sqrt(i.cost) });
   }
   const byPrio = (a, b) => (a.c.tier <= 2 ? a.c.tier : 3) - (b.c.tier <= 2 ? b.c.tier : 3) || b.c.score - a.c.score || cmp(a.c.code, b.c.code);
@@ -176,11 +180,20 @@ function scenario(items, p) {
     steps = cands.map(c => ({ c, qty: Math.ceil((toMax ? Math.max(c.smax, c.smin) : c.smin) - c.disp), note: toMax ? "Riporto a SMax" : "Riporto a SMin" })).filter(x => x.qty > 0).sort(byPrio);
   } else {
     // entrano i codici con consumo e, se si tiene la SMin, anche quelli con SMin ma senza consumo registrato
-    steps = cands.filter(c => c.cons_mese > 0 || (p.keepMin !== false && c.smin > 0)).map(c => {
-      // consumo atteso nel periodo arrotondato al pezzo più vicino: sotto mezzo pezzo non si ordina, salvo SMin
-      const target = Math.max(Math.round(c.cons_mese * months), p.keepMin === false ? 0 : c.smin);
-      return { c, qty: Math.ceil(target - c.disp), note: `Copertura di ${months.toLocaleString("it-IT")} ${months === 1 ? "mese" : "mesi"}` };
+    steps = cands.filter(c => c.cons_eff > 0 || (keepMin && c.smin > 0)).map(c => {
+      // consumo atteso nel periodo (corretto secondo le regole), arrotondato come scelto; poi minimo SMin e tetto
+      const raw = c.cons_eff * months, rounded = roundFn(raw), base = Math.max(rounded, keepMin ? c.smin : 0);
+      const capVal = R.cap === "smax" ? c.smax : R.cap === "months" ? Math.floor(R.capMonths * c.cons_eff + 1e-9) : Infinity;
+      const limit = R.cap === "none" ? Infinity : Math.max(capVal, keepMin ? c.smin : 0);
+      const target = Math.min(base, limit);
+      const calc = { kind: "cover", cons: c.cons_mese, adj: R.consAdj, ce: c.cons_eff, months, raw, round: R.round, rounded, keepMin, smin: c.smin, base,
+        cap: R.cap, capMonths: R.capMonths, limit: isFinite(limit) ? limit : null, capped: target < base, target, giac: c.giac, ord: c.ord, disp: c.disp };
+      return { c, qty: Math.ceil(target - c.disp), calc, note: `Copertura di ${months.toLocaleString("it-IT")} ${months === 1 ? "mese" : "mesi"}` };
     }).filter(x => x.qty > 0).sort(byPrio);
+  }
+  // valore minimo di riga (pianificazione, monitoraggio e riporto a scorta)
+  if (R.minLine > 0 && (p.mode === "cover" || p.mode === "level")) {
+    const keep = steps.filter(x => x.qty * x.c.cost >= R.minLine - 1e-9); excluded.minline = steps.length - keep.length; steps = keep;
   }
 
   const need = steps.reduce((t, x) => t + x.qty * x.c.cost, 0);
@@ -195,14 +208,15 @@ function scenario(items, p) {
       if (c.tier === 1) why.push("A zero con fabbisogno"); else if (c.tier === 2) why.push("Sotto SMin");
       if (c.status === "sotto" && c.streak > 1) why.push(`da ${c.streak} settimane`);
       if (c.status === "eccesso") why.push("già sopra SMax");
-      if (c.cons_mese > 0) why.push(`consumo medio ${c.cons_mese.toLocaleString("it-IT", { maximumFractionDigits: 2 })} pz/mese`);
+      if (c.cons_mese > 0) why.push(`consumo medio ${c.cons_mese.toLocaleString("it-IT", { maximumFractionDigits: 2 })} pz/mese${R.consAdj ? ` (considerato ${c.cons_eff.toLocaleString("it-IT", { maximumFractionDigits: 2 })}, ${R.consAdj > 0 ? "+" : ""}${R.consAdj}%)` : ""}`);
       l = { rank: lines.size + 1, code: c.code, descr: c.descr, loc: c.loc, dg: c.dg, grp: c.grp, cls: c.cls, status: c.status, in_b: c.in_b, tier: c.tier,
-        giac: c.giac, ord: c.ord, smin: c.smin, smax: c.smax, cons_mese: c.cons_mese, regolarita: c.regolarita, cost: c.cost, listino: c.listino, streak: c.streak, qty: 0, value: 0, reasons: why, partial: false,
+        giac: c.giac, ord: c.ord, smin: c.smin, smax: c.smax, cons_mese: c.cons_mese, cons_eff: c.cons_eff, regolarita: c.regolarita, cost: c.cost, calc: x.calc || null, disp: c.disp, listino: c.listino, streak: c.streak, qty: 0, value: 0, reasons: why, partial: false,
         qty_sold: c.qty_sold, last_sale: c.last_sale, ven_spc: c.ven_spc, fab: c.fab, prev_giac: c.prev_giac,
-        cover_before: c.cons_mese > 0 ? (c.giac + c.ord) / c.cons_mese : null };
+        cover_before: c.cons_eff > 0 ? (c.giac + c.ord) / c.cons_eff : null };
       lines.set(c.code, l);
     }
     l.qty += q; l.value += q * x.c.cost;
+    (l.steps || (l.steps = [])).push({ note: x.note, qty: q });
     if (!l.reasons.includes(x.note) && !(x.note === "A zero con fabbisogno" || x.note === "Sotto SMin")) l.reasons.push(x.note);
     if (q < x.qty) l.partial = true;
   };
@@ -219,14 +233,14 @@ function scenario(items, p) {
   if (p.mode === "target" && left >= 0.01) {
     // Nessuna soglia di rotazione: la proporzione la dà il livellamento (quantità = copertura x domanda).
     // Copertura massima facoltativa: senza limite il livello sale finché l'importo è raggiunto.
-    const minRot = Math.max(0, +p.minRot || 0), maxCov = +p.maxCover > 0 ? Math.min(120, +p.maxCover) : Infinity;
-    const pool = cands.filter(c => c.cons_mese > 0 && annuo(c) >= minRot).map(c => {
-      const l = lines.get(c.code); return { c, m: c.cons_mese, base: c.disp + (l ? l.qty : 0) };
+    const minRot = Math.max(0, +p.minRot || 0), maxCov = +p.maxCover > 0 ? Math.min(120, +p.maxCover) : R.cap === "months" ? R.capMonths : Infinity;
+    const pool = cands.filter(c => c.cons_eff > 0 && annuo(c) >= minRot).map(c => {
+      const l = lines.get(c.code), base = c.disp + (l ? l.qty : 0); return { c, m: c.cons_eff, base, top: R.cap === "smax" ? Math.max(0, c.smax - base) : Infinity };
     });
-    const qtyAt = (x, C) => Math.max(0, Math.floor(C * x.m - x.base + 1e-9));
+    const qtyAt = (x, C) => Math.min(x.top, Math.max(0, Math.floor(C * x.m - x.base + 1e-9)));
     const costAt = C => pool.reduce((t, x) => t + qtyAt(x, C) * x.c.cost, 0);
     let lo = 0, hi = isFinite(maxCov) ? maxCov : 12;
-    if (!isFinite(maxCov)) while (costAt(hi) < left && hi < 1200) hi *= 2;
+    if (!isFinite(maxCov)) while (costAt(hi) < left && hi < 1200 && costAt(hi) < costAt(hi * 2)) hi *= 2;
     if (costAt(hi) <= left) lo = hi;
     else for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (costAt(mid) <= left) lo = mid; else hi = mid; }
     const alloc = new Map();
@@ -236,7 +250,7 @@ function scenario(items, p) {
     // rifinitura: un pezzo in più solo ai codici che sarebbero i prossimi a riceverlo (copertura successiva
     // vicina al livello raggiunto), così i codici lenti non ricevono pezzi solo perché costano poco
     const tol = Math.max(0.5, lo * 0.1);
-    const next = pool.map(x => ({ x, cov: (x.base + (alloc.get(x) || 0) + 1) / x.m })).filter(y => y.cov <= Math.min(maxCov, lo + tol) + 1e-9).sort((a, b) => a.cov - b.cov || cmp(a.x.c.code, b.x.c.code));
+    const next = pool.map(x => ({ x, cov: (x.base + (alloc.get(x) || 0) + 1) / x.m })).filter(y => (alloc.get(y.x) || 0) < y.x.top && y.cov <= Math.min(maxCov, lo + tol) + 1e-9).sort((a, b) => a.cov - b.cov || cmp(a.x.c.code, b.x.c.code));
     for (const y of next) { if (y.x.c.cost <= rem + 1e-9) { alloc.set(y.x, (alloc.get(y.x) || 0) + 1); rem -= y.x.c.cost; } }
     const note = `anticipo per l'obiettivo (copertura fino a ${lo.toLocaleString("it-IT", { maximumFractionDigits: 1 })} mesi)`;
     const order = [...alloc.entries()].sort((a, b) => (a[0].base / a[0].m) - (b[0].base / b[0].m) || cmp(a[0].c.code, b[0].c.code));
@@ -247,7 +261,7 @@ function scenario(items, p) {
   }
   const out = [...lines.values()];
   let cum = 0;
-  for (const l of out) { cum += l.value; l.cum = cum; l.cover_after = l.cons_mese > 0 ? (l.giac + l.ord + l.qty) / l.cons_mese : null; }
+  for (const l of out) { cum += l.value; l.cum = cum; l.cover_after = l.cons_eff > 0 ? (l.giac + l.ord + l.qty) / l.cons_eff : null; }
   const t1 = cands.filter(c => c.tier === 1), t2 = cands.filter(c => c.tier === 2);
   const okMin = c => { const l = lines.get(c.code); return l && c.disp + l.qty >= c.smin; };
   const spent = cap === Infinity ? need : cap - left;
@@ -263,13 +277,40 @@ function scenario(items, p) {
   return {
     lines: out,
     summary: {
-      list: listInfo, target, mode: p.mode, months, level: p.level, budget: cap === Infinity ? null : cap, spent: p.mode === "target" ? spent : Math.min(spent, need), left: cap === Infinity ? null : Math.max(0, left),
+      list: listInfo, target, mode: p.mode, months, rules: { ...R, months, keepMin, minDemand, exclNoScorta: !includeNoParams }, level: p.level, budget: cap === Infinity ? null : cap, spent: p.mode === "target" ? spent : Math.min(spent, need), left: cap === Infinity ? null : Math.max(0, left),
       need, n_cands: cands.length, excluded, n_lines: out.length, pieces: out.reduce((t, l) => t + l.qty, 0),
       zero_tot: t1.length, zero_cov: t1.filter(okMin).length, sotto_tot: t2.length, sotto_cov: t2.filter(okMin).length,
       by_group: Object.values(byGroup).sort((a, b) => b.value - a.value || cmp(a.id, b.id))
     }
   };
 }
+
+/* Regole di riordino: le sceglie ogni utente, valgono per le proposte d'ordine.
+ * months       orizzonte di copertura in mesi (pianificazione e monitoraggio)
+ * consAdj      correzione del consumo medio in percentuale (da -50 a +50)
+ * keepMin      porta almeno alla SMin
+ * cap          tetto: "none" nessuno, "smax" non oltre la SMax, "months" non oltre capMonths mesi di copertura
+ * round        arrotondamento del consumo del periodo: "nearest" al più vicino, "up" per eccesso, "down" per difetto
+ * exclNoScorta escludi i codici con SMin e SMax a zero
+ * minDemand    escludi i codici con consumo medio sotto questa soglia (pezzi al mese)
+ * exclOnDemand escludi i codici segnati come su richiesta
+ * minLine      escludi le righe di valore inferiore (euro, pianificazione e monitoraggio)
+ * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
+const RULES_DEFAULT = { months: 1, consAdj: 0, keepMin: true, cap: "none", capMonths: 6, round: "nearest", exclNoScorta: true, minDemand: 0, exclOnDemand: true, minLine: 0, alertMonths: 3 };
+function cleanRules(r) {
+  r = r && typeof r === "object" ? r : {};
+  const n = (v, lo, hi, d) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; };
+  const b = (v, d) => (typeof v === "boolean" ? v : d);
+  const D = RULES_DEFAULT;
+  return {
+    months: n(r.months, 0.25, 24, D.months), consAdj: Math.round(n(r.consAdj, -50, 50, D.consAdj)), keepMin: b(r.keepMin, D.keepMin),
+    cap: ["none", "smax", "months"].includes(r.cap) ? r.cap : D.cap, capMonths: n(r.capMonths, 0.5, 24, D.capMonths),
+    round: ["nearest", "up", "down"].includes(r.round) ? r.round : D.round, exclNoScorta: b(r.exclNoScorta, D.exclNoScorta),
+    minDemand: n(r.minDemand, 0, 1000, D.minDemand), exclOnDemand: b(r.exclOnDemand, D.exclOnDemand), minLine: n(r.minLine, 0, 1e6, D.minLine),
+    alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths)
+  };
+}
+const ROUND = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
 
 /* Indicatori di una settimana. La rotazione annua è il consumo medio mensile × 12. */
 function kpis(items, flagged = new Set(), sampleCap = 5000) {
@@ -331,4 +372,4 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { cross, scenario, filterValues, kpis, GROUPS };
+module.exports = { RULES_DEFAULT, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
