@@ -15,8 +15,8 @@
     "express": "^4.21.2",
     "pg": "^8.13.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "jspdf": "2.5.2",
-    "jspdf-autotable": "3.8.4",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.9",
     "jszip": "3.10.1"
   }
 }
