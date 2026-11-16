@@ -98,7 +98,7 @@ function cross(rowsA, rowsB) {
   return { items, kpi, dup };
 }
 
-/* Gruppo principale: quarta cifra del codice particolare (es. AAA 8 00111 -> 8). */
+/* Gruppo principale: quarta cifra del codice particolare (es. 12385671 -> 8). */
 const GROUPS = { "0": "Accessori e vernici", "1": "Motore", "2": "Alimentazione e scarico", "3": "Cambio", "4": "Assale anteriore e sterzo",
   "5": "Assale posteriore", "6": "Ruote e freni", "7": "Leve e pedali", "8": "Carrozzeria e clima", "9": "Impianto elettrico" };
 const mainGroup = code => { const c = String(code || "")[3]; return c >= "0" && c <= "9" ? c : "X"; };

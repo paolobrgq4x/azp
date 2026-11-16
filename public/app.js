@@ -650,7 +650,7 @@ async function viewOrdine(main) {
     <details class="filters"${F.codes.length ? " open" : ""}><summary>Solo i codici di un elenco${F.codes.length ? ` (${fmtN(F.codes.length)} codici)` : ""}</summary>
       <div class="fgrid">
         <p class="small muted">Scrivi o incolla i codici, oppure carica un Excel: la piattaforma fa i calcoli solo su quelli. Gli altri filtri restano validi.</p>
-        <label class="field" for="lpaste">Codici (uno per riga, oppure separati da spazio, virgola o punto e virgola)<textarea id="lpaste" rows="4" placeholder="AAA000111B&#10;AAA000222">${esc(F.codes.join("\n"))}</textarea></label>
+        <label class="field" for="lpaste">Codici (uno per riga, oppure separati da spazio, virgola o punto e virgola)<textarea id="lpaste" rows="4" placeholder="12385671&#10;45760932">${esc(F.codes.join("\n"))}</textarea></label>
         <div class="row"><label class="btn sm" for="lfile">Carica Excel con i codici</label><input type="file" id="lfile" accept=".xlsx,.xls,.xlsm,.csv"><button class="link" type="button" id="lclear">Svuota elenco</button><span class="small muted" id="linfo">${F.codes.length ? `${fmtN(F.codes.length)} codici${O.listName ? " da " + esc(O.listName) : ""}` : ""}</span></div>
         <label class="check" for="lover"><input type="checkbox" id="lover"${O.listOverride ? " checked" : ""}> Calcola anche i codici dell'elenco segnati su richiesta o senza SMin/SMax</label>
       </div></details>
@@ -659,7 +659,7 @@ async function viewOrdine(main) {
         <div><p class="flabel">Gruppo principale <span class="muted">(4ª cifra del codice)</span></p><div class="chips">${M.groups.map(g => chip("data-g", g.id, `${g.id === "X" ? "–" : g.id} ${g.label}`, F.groups.includes(g.id), g.n)).join("")}</div></div>
         <div><p class="flabel">Classe ABC sul consumo</p><div class="chips">${[["A", "A · 80% del consumo"], ["B", "B · 15%"], ["C", "C · 5%"], ["N", "Senza consumo"]].map(([k, l]) => chip("data-abc", k, l, F.abc.includes(k), M.abc[k])).join("")}</div></div>
         ${M.dg.length ? `<div><p class="flabel">DG</p><div class="chips dgbox">${M.dg.map(d => chip("data-dg", d.id, d.id, F.dg.includes(d.id), d.n)).join("")}</div></div>` : ""}
-        <label class="field" for="fq">Tipologia o codice contiene<input type="search" id="fq" value="${esc(F.q)}" placeholder="es. FILTRO, PASTIGLIE, 5G0"></label>
+        <label class="field" for="fq">Tipologia o codice contiene<input type="search" id="fq" value="${esc(F.q)}" placeholder="es. FILTRO, PASTIGLIE, 123"></label>
         <div><button class="link" type="button" id="fclear">Togli tutti i filtri</button></div>
       </div></details>
     <details class="filters"><summary>Codici su richiesta: esclusioni (${fmtN(O.flags.length)} segnati a mano)</summary>
@@ -1149,7 +1149,7 @@ async function viewKpi(main) {
 async function viewCodice(main) {
   if (needDealer(main)) return;
   main.innerHTML = `<div class="head"><div><h1>Scheda codice</h1><p class="sub">Evoluzione settimana per settimana di un codice in ${esc(dealerName(state.dealerId))}.</p></div></div>
-  <form class="panel" id="cf"><div class="row"><label class="field" for="cq">Codice particolare<input type="text" id="cq" value="${esc(state.codice)}" autocapitalize="characters" placeholder="Es. AAA000111B"></label><button class="btn primary" type="submit">Mostra</button></div></form>
+  <form class="panel" id="cf"><div class="row"><label class="field" for="cq">Codice particolare<input type="text" id="cq" value="${esc(state.codice)}" autocapitalize="characters" placeholder="Es. 12385671"></label><button class="btn primary" type="submit">Mostra</button></div></form>
   <div id="cres"></div>`;
   $("#cf").onsubmit = e => { e.preventDefault(); state.codice = $("#cq").value.trim().toUpperCase(); showCode(); };
   if (state.codice) await showCode(); else $("#cq").focus();
@@ -1341,25 +1341,26 @@ async function save(replace, onDone) {
  * per una o più settimane che evolvono nel tempo. Tutto avviene nel browser: nulla viene salvato.
  */
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-const G_PREFIX = ["1K0", "1K1", "1T0", "2G0", "2K5", "2Q0", "3C0", "3G0", "3V0", "5E0", "5F0", "5G0", "5K0", "5N0", "5Q0", "5TA", "6F0", "6R0", "7H0", "7N0", "81A", "8V0", "4K0", "2GA", "5H0", "11A", "1EA", "6Q0"];
-const G_PARTS = [["807", "RIVEST.", 380, 720, 1], ["807", "PARAURTI ANT.", 290, 650, 1], ["807", "PARAURTI POST.", 270, 610, 1], ["698", "PASTIGLIE FRENO", 48, 160, 0], ["615", "DISCO FRENO", 55, 240, 0],
-  ["611", "PINZA FRENO", 160, 520, 0], ["115", "FILTRO OLIO", 9, 28, 0], ["129", "FILTRO ARIA", 18, 55, 0], ["819", "FILTRO ABITACOLO", 16, 48, 0], ["127", "FILTRO CARB.", 24, 90, 0],
-  ["941", "PROIETTORE", 320, 1450, 0], ["945", "FANALE POST.", 140, 480, 0], ["857", "SPECCHIO EST.", 45, 260, 1], ["121", "RADIATORE", 210, 560, 0], ["413", "AMMORTIZZ.", 95, 310, 0],
-  ["407", "BRACCIO OSCILL.", 85, 280, 0], ["955", "SPAZZOLA TERG.", 14, 46, 0], ["905", "CANDELA", 9, 32, 0], ["253", "SILENZIATORE", 180, 640, 0], ["103", "GUARNIZIONE", 6, 85, 0],
-  ["109", "CINGHIA DENT.", 55, 160, 0], ["121", "POMPA ACQUA", 90, 260, 0], ["906", "SENSORE", 35, 210, 0], ["919", "SENSORE PARCH.", 45, 120, 1], ["821", "PARAFANGO", 160, 420, 0],
-  ["831", "PORTIERA", 520, 1250, 0], ["853", "MODANATURA", 28, 140, 1], ["837", "MANIGLIA", 30, 120, 1], ["959", "MOTORINO ALZAC.", 85, 230, 0], ["820", "COMPRESSORE CLIMA", 420, 980, 0],
-  ["915", "BATTERIA", 110, 290, 0], ["411", "MOLLA ELICOID.", 40, 130, 0], ["498", "CUSCINETTO RUOTA", 75, 210, 0], ["601", "CERCHIO", 180, 690, 0], ["881", "RIVEST. SEDILE", 140, 520, 1],
-  ["867", "PANNELLO PORTA", 160, 480, 1], ["199", "SUPPORTO MOTORE", 60, 220, 0], ["145", "TURBOCOMPRESSORE", 950, 2400, 0], ["141", "KIT FRIZIONE", 260, 720, 0], ["511", "BULLONE", 1, 9, 0]];
-const G_COLORS = ["GRU", "9B9", "041", "2ZZ", "9AX", "ZQ4", "XX", "Y20", "82V", "B41"], G_GRP = ["KDA", "KDB", "KMA", "KMB", "ZUB", "OEL", "REI"], G_LET = "ABCDEFGHJKLMNPQRST";
+// Codici di prova: 8 cifre, la quarta è il gruppo principale (da 0 a 9).
+// [gruppo, descrizione, listino minimo, listino massimo]
+const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], ["8", "PARAURTI POST.", 270, 610], ["6", "PASTIGLIE FRENO", 48, 160], ["6", "DISCO FRENO", 55, 240],
+  ["6", "PINZA FRENO", 160, 520], ["1", "FILTRO OLIO", 9, 28], ["1", "FILTRO ARIA", 18, 55], ["8", "FILTRO ABITACOLO", 16, 48], ["2", "FILTRO CARB.", 24, 90],
+  ["9", "PROIETTORE", 320, 1450], ["9", "FANALE POST.", 140, 480], ["8", "SPECCHIO EST.", 45, 260], ["1", "RADIATORE", 210, 560], ["5", "AMMORTIZZ.", 95, 310],
+  ["4", "BRACCIO OSCILL.", 85, 280], ["9", "SPAZZOLA TERG.", 14, 46], ["9", "CANDELA", 9, 32], ["2", "SILENZIATORE", 180, 640], ["1", "GUARNIZIONE", 6, 85],
+  ["1", "CINGHIA DENT.", 55, 160], ["1", "POMPA ACQUA", 90, 260], ["9", "SENSORE", 35, 210], ["9", "SENSORE PARCH.", 45, 120], ["8", "PARAFANGO", 160, 420],
+  ["8", "PORTIERA", 520, 1250], ["8", "MODANATURA", 28, 140], ["8", "MANIGLIA", 30, 120], ["9", "MOTORINO ALZAC.", 85, 230], ["8", "COMPRESSORE CLIMA", 420, 980],
+  ["9", "BATTERIA", 110, 290], ["4", "MOLLA ELICOID.", 40, 130], ["4", "CUSCINETTO RUOTA", 75, 210], ["6", "CERCHIO", 180, 690], ["8", "RIVEST. SEDILE", 140, 520],
+  ["8", "PANNELLO PORTA", 160, 480], ["1", "SUPPORTO MOTORE", 60, 220], ["1", "TURBOCOMPRESSORE", 950, 2400], ["3", "KIT FRIZIONE", 260, 720], ["0", "BULLONE", 1, 9],
+  ["7", "LEVA FRENO MANO", 35, 140], ["7", "PEDALIERA", 60, 210], ["3", "SUPPORTO CAMBIO", 45, 160], ["0", "VERNICE RITOCCO", 12, 38], ["5", "MOZZO POST.", 70, 230]];
+const G_GRP = ["KDA", "KDB", "KMA", "KMB", "ZUB", "OEL", "REI"];
 const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giac Cross Aggiornate al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
 const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.", "GrpOmog."];
 function generateData(o) {
   const R = rng(o.seed), pick = a => a[Math.floor(R() * a.length)], ri = (a, b) => a + Math.floor(R() * (b - a + 1)), rf = (a, b) => a + R() * (b - a);
   const used = new Set(), DGS = [];
   for (let n = 1; n < 40; n++) DGS.push("H" + String(n).padStart(3, "0")); for (let n = 1; n < 15; n++) DGS.push("A" + String(n).padStart(3, "0")); for (let n = 1; n < 10; n++) DGS.push("M" + String(n).padStart(3, "0"));
-  const newCode = () => { for (;;) { const pr = pick(G_PREFIX), pt = pick(G_PARTS), sub = String(ri(1, 999)).padStart(3, "0");
-    const idx = R() < .35 ? "" : Array.from({ length: R() < .67 ? 1 : 2 }, () => pick(G_LET.split(""))).join("");
-    const col = pt[4] && R() < .75 ? pick(G_COLORS) : ""; const c = pr + pt[0] + sub + idx + col; if (!used.has(c)) { used.add(c); return [c, pt]; } } };
+  // 8 cifre: tre casuali, il gruppo principale, quattro casuali
+  const newCode = () => { for (;;) { const pt = pick(G_PARTS), c = String(ri(100, 999)) + pt[0] + String(ri(0, 9999)).padStart(4, "0"); if (!used.has(c)) { used.add(c); return [c, pt]; } } };
   const loc = () => R() < .08 ? null : R() < .15 ? `${pick("ABHJKM".split(""))}${ri(1, 9)}${pick("ABCDEFG".split(""))}${ri(1, 9)}` : `${pick("ABHJKM".split(""))}${String(ri(1, 30)).padStart(2, "0")}${pick("ABCDEF".split(""))}${ri(1, 6)}`;
   // profilo: quota di codici sotto SMin e sopra SMax nella prima settimana
   const prof = { equilibrato: [.25, .12, .2], alto: [.08, .35, .35], scarico: [.45, .04, .08] }[o.profile] || [.25, .12, .2];
