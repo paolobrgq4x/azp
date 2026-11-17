@@ -37,7 +37,7 @@ const annuo = i => (i.cons_mese > 0 ? i.cons_mese * 12 : 0);
 
 /**
  * rowsA: [code, desc, loc, dg, cost, ord, smin, smax, regolarita, cons_mese, listino, qtaven_ultven, ven_spc, fab]
- * regolarita = indice di regolarità delle vendite (da 0 a 12: più è alto, più il codice si vende con continuità).
+ * regolarita = indice di regolarità delle vendite (da 0 a 11,99: più è alto, più il codice si vende con continuità).
  *              Non entra nell'incrocio; negli scenari a importo dà la vendita regolare (consumo × regolarità / 12).
  * cons_mese  = consumo medio mensile in pezzi. È la base di coperture, scenari e indicatori.
  * La colonna QtaVen/UltVen contiene la quantità venduta di recente oppure, se è nel formato AAAAMMGG,
@@ -155,6 +155,8 @@ function filterValues(items) {
  * Ordine delle righe: prima i codici che erano sotto la SMin, poi regolarità più alta e, a parità, consumo più alto.
  * Filtri: gruppo principale, DG, classe ABC, testo su codice o descrizione, elenco di codici.
  */
+// L'indice di regolarità va da 0 a 11,99: un valore più alto nel file viene letto come 11,99.
+const REG_MAX = 11.99;
 const MODES = ["cover", "amount", "free"];
 const MONTHS = [1, 2, 3];
 const MAX_COVER = [0, 3, 4, 6, 9, 12, 18, 24];   // 0 = nessun limite
@@ -249,12 +251,12 @@ function scenario(items, p) {
     if (!(i.smin > 0) && !(i.smax > 0)) { if (i.cons_mese > 0) excluded.noparams++; continue; }
     if (flagged.has(i.code) && !forced) { excluded.flag++; continue; }
     if (minDemand > 0 && i.cons_mese < minDemand) { excluded.low++; continue; }   // soglia in pezzi al mese
-    cands.push({ ...i, regolarita: Math.max(0, num(i.regolarita)), cons_eff: Math.max(0, i.cons_mese) * k, tier: tierOf(i), disp: i.giac + i.ord,
+    cands.push({ ...i, regolarita: Math.min(REG_MAX, Math.max(0, num(i.regolarita))), cons_eff: Math.max(0, i.cons_mese) * k, tier: tierOf(i), disp: i.giac + i.ord,
       top: Math.max(i.smax, i.smin), cls: abc.get(i.code) || "N", grp: mainGroup(i.code) });
   }
   // Senza indice di regolarità nei dati la vendita regolare è il consumo: tutti i codici contano come regolari.
   const hasReg = cands.some(c => c.regolarita > 0);
-  for (const c of cands) c.vr = c.cons_eff * (hasReg ? Math.min(12, c.regolarita) / 12 : 1);
+  for (const c of cands) c.vr = c.cons_eff * (hasReg ? c.regolarita / 12 : 1);
   // Precedenza: regolarità più alta, poi consumo più alto; a parità esatta l'ordine alfabetico del codice.
   const byReg = (a, b) => b.regolarita - a.regolarita || b.cons_mese - a.cons_mese || cmp(a.code, b.code);
   const mesiTxt = m => `${m.toLocaleString("it-IT", { maximumFractionDigits: 1 })} ${m === 1 ? "mese" : "mesi"}`;
@@ -453,4 +455,4 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
+module.exports = { REG_MAX, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };

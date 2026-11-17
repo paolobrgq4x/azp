@@ -785,7 +785,7 @@ async function viewOrdine(main) {
   <div id="ores"></div>
   <div id="ohist"></div>
   <section class="panel rules"><h3>Come lavorano gli scenari</h3><ul>
-    <li><b>Per tutti</b>: il disponibile è la giacenza più gli ordini aperti. La <b>vendita regolare</b> di un codice è il consumo medio mensile × l'indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. I codici non tenuti a scorta (SMin e SMax a zero), i fermi e quelli senza storico sono sempre esclusi.</li>
+    <li><b>Per tutti</b>: il disponibile è la giacenza più gli ordini aperti. La <b>vendita regolare</b> di un codice è il consumo medio mensile × l'indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99: un valore più alto nel file conta come 11,99. I codici non tenuti a scorta (SMin e SMax a zero), i fermi e quelli senza storico sono sempre esclusi.</li>
     <li><b>Acquisti per coprire un periodo</b> (1, 2 o 3 mesi): per ogni codice l'obiettivo è il consumo medio mensile × i mesi, mai sotto la SMin e mai sopra la SMax. Si ordina la differenza tra l'obiettivo e il disponibile. Non c'è un importo: la spesa è il risultato.</li>
     <li><b>Acquisti per un importo</b>: prima i codici sotto la SMin tornano alla SMin; se l'importo non basta nemmeno per questo, passano prima i codici con la regolarità più alta e, a parità, con il consumo più alto. Il resto compra a tutti lo stesso numero di mesi di vendita regolare: chi vende di più e con più continuità riceve più pezzi. Nessun codice supera la SMax: chi ci arriva si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, quello che resta non viene speso.</li>
     <li><b>Acquisti per un importo libero</b>: come l'importo, ma quello che resterebbe non speso sale oltre la SMax con la stessa proporzione: ogni codice riceve lo stesso numero di mesi di vendita regolare in più. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Si può fissare una copertura massima in mesi per codice.</li>
@@ -973,7 +973,7 @@ function moveCells(l) {
         <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.cons_eff != null && l.cons_mese && Math.abs(l.cons_eff - l.cons_mese) > 1e-9 ? `<span class="sub">considerato ${fmtN(l.cons_eff, 2)}</span>` : ""}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 1)}</span>` : ""}</td>
         <td class="num">${v == null ? "–" : v === 0 ? "=" : (v > 0 ? "+" : "") + fmtN(v)}${l.prev_giac != null ? `<span class="sub">prima ${fmtN(l.prev_giac)}</span>` : ""}</td>`;
 }
-const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 12">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto alla settimana caricata prima">Var. giacenza</th>`;
+const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 11,99">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto alla settimana caricata prima">Var. giacenza</th>`;
 /* Blocca le prime due colonne a sinistra e quelle da «Proposta» in poi a destra.
    Se lo schermo è troppo stretto per entrambi i blocchi, a destra resta bloccata solo l'ultima colonna. */
 let freezeActive = null;
@@ -1229,7 +1229,7 @@ async function viewKpi(main) {
       ${K.top.map(t => `<tr><td class="code"><button type="button" data-c="${esc(t.code)}">${esc(t.code)}</button></td><td class="desc">${esc(t.descr)}</td><td class="num">${fmtN(t.cons_mese, 2)}</td><td class="num">${fmtN(t.giac)}</td><td class="num">${fmtN(t.months, 1)} mesi</td><td><span class="pill ${t.status}">${STATI[t.status]}</span></td></tr>`).join("")}</tbody></table></div></div>
     <div class="panel"><h2>Tipologie con più valore a magazzino</h2><div id="b4"></div></div>
   </section>
-  <p class="small muted">Il consumo medio della lista movimentazione è trattato come pezzi al mese: la rotazione annua è il consumo medio × 12 e la copertura è la giacenza ÷ consumo medio. L'indice di regolarità delle vendite (da 0 a 12) non entra in questi indicatori: pesa negli scenari d'ordine a importo. Se nel tuo sistema il consumo medio ha un'altra unità, rotazione e copertura vanno ricalibrate.</p>`;
+  <p class="small muted">Il consumo medio della lista movimentazione è trattato come pezzi al mese: la rotazione annua è il consumo medio × 12 e la copertura è la giacenza ÷ consumo medio. L'indice di regolarità delle vendite (da 0 a 11,99) non entra in questi indicatori: pesa negli scenari d'ordine a importo. Se nel tuo sistema il consumo medio ha un'altra unità, rotazione e copertura vanno ricalibrate.</p>`;
   $("#kw").onchange = e => { state.kpiSnap = +e.target.value; viewKpi(main); };
   const cs = getComputedStyle(document.documentElement), col = v => cs.getPropertyValue(v).trim();
   if (T.length > 1) {
@@ -1478,8 +1478,8 @@ function generateData(o) {
     const ord = R() < .9 || smax === 0 ? 0 : ri(1, Math.max(1, smin));
     // consumo medio mensile: per i codici a scorta la SMin è il consumo arrotondato per eccesso; gli altri si vendono poco o nulla
     const cons_mese = Math.round((smax ? Math.max(.3, smin - rf(.05, .95)) : R() < .3 ? 0 : rf(.02, .45)) * 100) / 100;
-    // indice di regolarità delle vendite (da 0 a 12): alto per i codici a scorta, basso per gli altri
-    const regolarita = Math.round((smax ? rf(6.5, 11.99) : cons_mese ? rf(.3, 5.9) : 0) * 100) / 100;
+    // indice di regolarità delle vendite (da 0 a 11,99, mai oltre): alto per i codici a scorta, basso per gli altri
+    const regolarita = Math.min(11.99, Math.round((smax ? rf(6.5, 11.99) : cons_mese ? rf(.3, 5.9) : 0) * 100) / 100);
     const qv = R() < .12 ? +`2026${String(ri(1, 10)).padStart(2, "0")}${String(ri(1, 28)).padStart(2, "0")}` : R() < .6 ? ri(0, Math.max(1, smax * 2)) : 0;
     A.push({ dg: pick(DGS), code: c, desc: pt[1], loc: loc(), listino, costo, qv, vspc: R() < .95 ? 0 : ri(1, 3), ord, fab: 0, regolarita, cons_mese, smin, smax, scad: R() < .94 ? "N" : "S" });
   }
