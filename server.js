@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { pool, migrate, tx } = require("./db");
-const { cross, scenario, filterValues, kpis, cleanRules } = require("./logic");
+const { cross, scenario, filterValues, kpis, cleanRules, MODES } = require("./logic");
 
 const PORT = process.env.PORT || 10000;
 const PROD = process.env.NODE_ENV === "production";
@@ -381,9 +381,10 @@ const ITEM_COLS = "code, descr, loc, dg, status, in_b, giac, ord, smin, smax, de
 app.post("/api/snapshots/:id/scenario", express.json({ limit: "5mb" }), auth(), wrap(async (req, res) => {
   const s = await snapshotFor(req, res); if (!s) return;
   const b = req.body || {};
-  const mode = ["budget", "cover", "level", "target"].includes(b.mode) ? b.mode : "budget";
+  // tre scenari: cover (periodo, entro SMin e SMax), amount (importo, entro SMin e SMax), free (importo libero, anche oltre la SMax)
+  const mode = MODES.includes(b.mode) ? b.mode : "amount";
   const budget = Math.min(1e8, Math.max(0, +b.budget || 0));
-  if ((mode === "budget" || mode === "target") && !budget) return fail(res, 400, "Indica un importo maggiore di zero.");
+  if (mode !== "cover" && !budget) return fail(res, 400, "Indica un importo maggiore di zero.");
   const arr = (v, re) => Array.isArray(v) ? v.map(String).filter(x => re.test(x)).slice(0, 100) : [];
   const filters = { groups: arr(b.filters && b.filters.groups, /^[0-9X]$/), abc: arr(b.filters && b.filters.abc, /^[ABCN]$/),
     dg: arr(b.filters && b.filters.dg, /^.{1,20}$/), q: String((b.filters && b.filters.q) || "").slice(0, 60),
@@ -391,9 +392,8 @@ app.post("/api/snapshots/:id/scenario", express.json({ limit: "5mb" }), auth(), 
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
   // regole: quelle inviate con la richiesta, altrimenti quelle salvate dall'utente
   const rules = cleanRules(b.rules || req.user.rules);
-  res.json({ week: s.week_date, ...scenario(rows, { mode, budget, months: +b.months || rules.months, level: b.level === "smax" ? "smax" : "smin", fill: b.fill !== false, keepMin: b.keepMin != null ? b.keepMin !== false : rules.keepMin,
-    includeNoParams: b.includeNoParams != null ? b.includeNoParams === true : !rules.exclNoScorta, listOverride: b.listOverride !== false,
-    maxCover: +b.maxCover > 0 ? +b.maxCover : 0, minRot: 0, minDemand: b.minDemand != null ? Math.min(1000, Math.max(0, +b.minDemand || 0)) : rules.minDemand, flagged: fl, filters, rules }) });
+  res.json({ week: s.week_date, ...scenario(rows, { mode, budget, months: b.months, maxCover: b.maxCover, listOverride: b.listOverride !== false,
+    minDemand: b.minDemand != null ? Math.min(1000, Math.max(0, +b.minDemand || 0)) : rules.minDemand, flagged: fl, filters, rules }) });
 }));
 
 app.post("/api/snapshots/:id/lookup", express.json({ limit: "5mb" }), auth(), wrap(async (req, res) => {

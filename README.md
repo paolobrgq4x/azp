@@ -21,10 +21,22 @@ Piattaforma web che incrocia ogni settimana lo **storico movimentazione** (lista
 
 "Settimane nello stato" conta le settimane consecutive in cui il codice è rimasto nello stesso stato.
 
+## Scenari d'ordine
+
+Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita regolare** di un codice è il consumo medio mensile × l'indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. I codici non tenuti a scorta (SMin = SMax = 0), i fermi e quelli senza storico sono sempre esclusi.
+
+| Scenario | Come lavora |
+|---|---|
+| Acquisti per coprire un periodo (1, 2 o 3 mesi) | Obiettivo = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax. Ordine = obiettivo − disponibile. Non c'è un importo: la spesa è il risultato |
+| Acquisti per un importo | 1. I codici sotto la SMin tornano alla SMin (se l'importo non basta: prima la regolarità più alta, poi il consumo più alto). 2. Il resto compra a tutti lo stesso numero di mesi di vendita regolare. 3. Nessun codice supera la SMax; se tutti ci arrivano, il resto non viene speso |
+| Acquisti per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con la stessa proporzione. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Copertura massima per codice facoltativa |
+
+I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
+
 ## Struttura
 
 - `server.js` — API (accesso, utenti, concessionarie, caricamenti, analisi, storico codice)
-- `logic.js` — regole di incrocio
+- `logic.js` — regole di incrocio, scenari d'ordine e indicatori
 - `db.js` — connessione PostgreSQL e schema (creato all'avvio)
 - `public/` — interfaccia (HTML, CSS, JavaScript senza framework)
 

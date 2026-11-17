@@ -38,7 +38,7 @@ const annuo = i => (i.cons_mese > 0 ? i.cons_mese * 12 : 0);
 /**
  * rowsA: [code, desc, loc, dg, cost, ord, smin, smax, regolarita, cons_mese, listino, qtaven_ultven, ven_spc, fab]
  * regolarita = indice di regolarità delle vendite (da 0 a 12: più è alto, più il codice si vende con continuità).
- *              È solo informativo: non entra nel calcolo delle quantità.
+ *              Non entra nell'incrocio; negli scenari a importo dà la vendita regolare (consumo × regolarità / 12).
  * cons_mese  = consumo medio mensile in pezzi. È la base di coperture, scenari e indicatori.
  * La colonna QtaVen/UltVen contiene la quantità venduta di recente oppure, se è nel formato AAAAMMGG,
  * la data dell'ultima vendita.
@@ -127,13 +127,99 @@ function filterValues(items) {
 }
 
 /*
- * Scenari d'ordine. La domanda è il consumo medio mensile in pezzi (cons_mese).
- *  budget : fase 1 codici a zero con fabbisogno e sotto SMin portati a SMin; fase 2 (facoltativa) fino a SMax; si ferma al budget.
- *  cover  : per ogni codice con domanda, obiettivo = domanda di N mesi (almeno SMin se richiesto); tetto di spesa facoltativo.
- *  level  : tutti i codici riportati a SMin oppure a SMax; tetto di spesa facoltativo.
- * Ordine di priorità: codici a zero, poi sotto SMin, poi il resto; a parità vince domanda x persistenza / radice del costo.
- * Filtri: gruppo principale, DG, classe ABC, testo su codice o descrizione.
+ * Scenari d'ordine. Sono tre.
+ *  cover  : acquisti per coprire un periodo (1, 2 o 3 mesi), rispettando SMin e SMax.
+ *  amount : acquisti per un importo, rispettando SMin e SMax.
+ *  free   : acquisti per un importo libero: come amount, e quello che resta dopo aver portato tutti alla SMax va oltre la SMax.
+ *
+ * Valgono per tutti e tre:
+ *  disponibile      = giacenza + ordini aperti
+ *  consumo          = consumo medio mensile in pezzi, con l'eventuale correzione scelta nelle regole
+ *  vendita regolare = consumo × regolarità delle vendite / 12: i pezzi al mese su cui si può contare
+ *  i codici non tenuti a scorta (SMin e SMax a zero) sono sempre esclusi, come i fermi e quelli senza storico.
+ *
+ * cover: obiettivo = consumo × mesi (arrotondato come scelto nelle regole), mai sotto la SMin e mai sopra la SMax;
+ *        ordine = obiettivo − disponibile.
+ *
+ * amount, in tre passi:
+ *  1. i codici sotto la SMin tornano alla SMin; se l'importo non basta nemmeno per questo, passa prima chi ha la regolarità
+ *     più alta e, a parità, il consumo più alto;
+ *  2. il resto compra a tutti lo stesso numero di mesi di vendita regolare: sale un livello in mesi, uguale per tutti, e ogni
+ *     codice riceve un pezzo ogni volta che livello × vendita regolare raggiunge il suo pezzo successivo;
+ *  3. nessun codice supera la SMax: chi ci arriva si ferma e l'importo prosegue sugli altri. Se tutti sono alla SMax,
+ *     quello che resta non viene speso.
+ *
+ * free: come amount; l'importo che amount lascerebbe non speso sale oltre la SMax con la regola del passo 2, contando i mesi
+ *       a partire dalla SMax (chi è già sopra la SMax parte in ritardo). Limite facoltativo: mesi di copertura massima per codice.
+ *
+ * Ordine delle righe: prima i codici che erano sotto la SMin, poi regolarità più alta e, a parità, consumo più alto.
+ * Filtri: gruppo principale, DG, classe ABC, testo su codice o descrizione, elenco di codici.
  */
+const MODES = ["cover", "amount", "free"];
+const MONTHS = [1, 2, 3];
+const MAX_COVER = [0, 3, 4, 6, 9, 12, 18, 24];   // 0 = nessun limite
+
+/* Coda con priorità (heap binario): in cima la voce con il livello più basso. */
+function heapPush(h, x, less) {
+  h.push(x);
+  let i = h.length - 1;
+  while (i > 0) { const up = (i - 1) >> 1; if (!less(h[i], h[up])) break; [h[i], h[up]] = [h[up], h[i]]; i = up; }
+}
+function heapPop(h, less) {
+  const top = h[0], last = h.pop();
+  if (h.length) {
+    h[0] = last;
+    let i = 0;
+    for (;;) {
+      const l = 2 * i + 1, r = l + 1; let m = i;
+      if (l < h.length && less(h[l], h[m])) m = l;
+      if (r < h.length && less(h[r], h[m])) m = r;
+      if (m === i) break;
+      [h[i], h[m]] = [h[m], h[i]]; i = m;
+    }
+  }
+  return top;
+}
+
+/*
+ * Distribuzione di un importo in proporzione alla vendita regolare, a pezzi interi.
+ * Ogni voce ha: vr (vendita regolare in pezzi al mese), cost, cap (pezzi che può ancora ricevere, anche Infinity) e
+ * off (pezzi di ritardo: il codice riceve il primo pezzo quando livello × vr arriva a off + 1).
+ * Il livello è in mesi ed è uguale per tutti: a ogni livello un codice ha ricevuto i pezzi interi di livello × vr − off.
+ * Il grosso si trova per bisezione (il livello più alto che l'importo può pagare). I pezzi che restano vanno uno alla volta
+ * al codice il cui pezzo successivo arriva al livello più basso; chi costa più dell'importo rimasto viene saltato.
+ * Il livello restituito è quello comune: fin lì ogni codice ha ricevuto tutti i suoi pezzi interi. I pezzi dati dopo il primo
+ * salto sono l'avanzo dell'importo, speso sui codici che ancora può pagare.
+ * Scrive in ogni voce q (pezzi ricevuti) e short (non arrivata al suo massimo).
+ */
+function spread(entries, money, tie) {
+  const E = entries.filter(e => e.vr > 0 && e.cap > 0 && e.cost > 0);
+  for (const e of entries) { e.q = 0; e.short = false; }
+  if (!E.length || !(money >= 0.01)) return { left: Math.max(0, money), level: 0, full: !E.length, n: 0, value: 0 };
+  const at = (e, m) => Math.min(e.cap, Math.max(0, Math.floor(m * e.vr - e.off + 1e-9)));
+  const costAt = m => { let t = 0; for (const e of E) t += at(e, m) * e.cost; return t; };
+  const finite = E.every(e => Number.isFinite(e.cap));
+  let lo = 0, hi = finite ? E.reduce((t, e) => Math.max(t, (e.cap + e.off) / e.vr), 0) : 1;
+  if (!finite) for (let n = 0; n < 200 && costAt(hi) <= money; n++) hi *= 2;
+  if (finite && costAt(hi) <= money + 1e-9) lo = hi;      // l'importo basta per portare tutti al loro massimo
+  else for (let n = 0; n < 64; n++) { const mid = (lo + hi) / 2; if (costAt(mid) <= money + 1e-9) lo = mid; else hi = mid; }
+  let left = money, level = lo, skipped = false;
+  for (const e of E) { e.q = at(e, lo); left -= e.q * e.cost; }
+  const next = e => (e.off + e.q + 1) / e.vr;
+  const less = (a, b) => a.lv < b.lv || (a.lv === b.lv && tie(a.e.c, b.e.c) < 0);
+  const heap = [];
+  for (const e of E) if (e.q < e.cap) heapPush(heap, { lv: next(e), e }, less);
+  while (heap.length && left >= 0.01) {
+    const { lv, e } = heapPop(heap, less);
+    if (e.cost > left + 1e-9) { skipped = true; continue; }   // l'importo rimasto non basta più per questo codice
+    e.q++; left -= e.cost; if (!skipped) level = lv;
+    if (e.q < e.cap) heapPush(heap, { lv: next(e), e }, less);
+  }
+  let n = 0, value = 0;
+  for (const e of E) { if (e.q > 0) { n++; value += e.q * e.cost; } e.short = e.q < e.cap; }
+  return { left: Math.max(0, left), level, full: E.every(e => e.q >= e.cap), n, value };
+}
+
 function scenario(items, p) {
   const abc = abcMap(items);
   const f = p.filters || {};
@@ -146,125 +232,121 @@ function scenario(items, p) {
     && (!q || i.code.includes(q) || String(i.descr || "").toUpperCase().includes(q));
   const tierOf = i => { const d = i.giac + i.ord; return d <= 0 && i.smin > 0 ? 1 : d < i.smin ? 2 : d < i.smax ? 3 : 4; };
   const R = cleanRules(p.rules);
-  const months = Math.min(24, Math.max(0.25, +p.months || R.months));
+  const mode = MODES.includes(p.mode) ? p.mode : "amount";
+  const months = MONTHS.includes(+p.months) ? +p.months : R.months;
+  const maxCover = mode !== "free" ? 0 : p.maxCover != null ? cleanCover(p.maxCover) : R.maxCover;
   const flagged = R.exclOnDemand ? (p.flagged || new Set()) : new Set();
   const minDemand = p.minDemand != null ? Math.max(0, +p.minDemand || 0) : R.minDemand;
-  const keepMin = p.keepMin != null ? p.keepMin !== false : R.keepMin;
-  const includeNoParams = p.includeNoParams != null ? p.includeNoParams === true : !R.exclNoScorta;
   const k = 1 + R.consAdj / 100, roundFn = ROUND[R.round];
   const excluded = { flag: 0, noparams: 0, low: 0, minline: 0 };
+  const forced = !!(list && p.listOverride);   // codici scelti a mano: valgono anche se segnati su richiesta
 
   const cands = [];
   for (const i of items) {
     if (i.status === "fermo" || i.status === "nostorico" || !(i.cost > 0)) continue;
-    if (p.mode !== "cover" && p.mode !== "target" && i.status === "eccesso") continue;
     if (!inFilter(i)) continue;
-    // Codici su richiesta: segnati dal responsabile, senza SMin e SMax, o con consumo sotto soglia
-    const forced = list && p.listOverride;   // codici scelti esplicitamente: niente esclusioni automatiche
-    if (flagged.has(i.code) && !forced) { if (i.smin > 0 || i.cons_mese > 0) excluded.flag++; continue; }
-    if (i.smin === 0 && i.smax === 0 && !includeNoParams && !forced) { if (p.mode === "cover" && i.cons_mese > 0) excluded.noparams++; continue; }
+    // non tenuti a scorta (SMin e SMax a zero): sempre esclusi
+    if (!(i.smin > 0) && !(i.smax > 0)) { if (i.cons_mese > 0) excluded.noparams++; continue; }
+    if (flagged.has(i.code) && !forced) { excluded.flag++; continue; }
     if (minDemand > 0 && i.cons_mese < minDemand) { excluded.low++; continue; }   // soglia in pezzi al mese
-    const persist = i.status === "sotto" ? 1 + 0.15 * Math.min(Math.max(i.streak - 1, 0), 6) : 1;
-    cands.push({ ...i, cons_eff: i.cons_mese * k, tier: tierOf(i), disp: i.giac + i.ord, cls: abc.get(i.code) || "N", grp: mainGroup(i.code),
-      score: (i.cons_mese > 0 ? annuo(i) : 0.5) * persist / Math.sqrt(i.cost) });
+    cands.push({ ...i, regolarita: Math.max(0, num(i.regolarita)), cons_eff: Math.max(0, i.cons_mese) * k, tier: tierOf(i), disp: i.giac + i.ord,
+      top: Math.max(i.smax, i.smin), cls: abc.get(i.code) || "N", grp: mainGroup(i.code) });
   }
-  const byPrio = (a, b) => (a.c.tier <= 2 ? a.c.tier : 3) - (b.c.tier <= 2 ? b.c.tier : 3) || b.c.score - a.c.score || cmp(a.c.code, b.c.code);
-  let steps = [];
-  if (p.mode === "budget" || p.mode === "target") {
-    const p1 = cands.filter(c => c.tier <= 2 && c.smin > 0).map(c => ({ c, qty: Math.ceil(c.smin - c.disp), note: c.tier === 1 ? "A zero con fabbisogno" : "Sotto SMin" })).filter(x => x.qty > 0).sort(byPrio);
-    const p2 = p.fill === false && p.mode === "budget" ? [] : cands.filter(c => c.status !== "eccesso").map(c => ({ c, qty: Math.ceil(c.smax - Math.max(c.disp, c.tier <= 2 ? c.smin : c.disp)), note: c.tier <= 2 ? "completato fino a SMax" : "riempimento fino a SMax" }))
-      .filter(x => x.qty > 0).sort((a, b) => b.c.score - a.c.score || cmp(a.c.code, b.c.code));
-    steps = p1.concat(p2);
-  } else if (p.mode === "level") {
-    const toMax = p.level === "smax";
-    steps = cands.map(c => ({ c, qty: Math.ceil((toMax ? Math.max(c.smax, c.smin) : c.smin) - c.disp), note: toMax ? "Riporto a SMax" : "Riporto a SMin" })).filter(x => x.qty > 0).sort(byPrio);
-  } else {
-    // entrano i codici con consumo e, se si tiene la SMin, anche quelli con SMin ma senza consumo registrato
-    steps = cands.filter(c => c.cons_eff > 0 || (keepMin && c.smin > 0)).map(c => {
-      // consumo atteso nel periodo (corretto secondo le regole), arrotondato come scelto; poi minimo SMin e tetto
-      const raw = c.cons_eff * months, rounded = roundFn(raw), base = Math.max(rounded, keepMin ? c.smin : 0);
-      const capVal = R.cap === "smax" ? c.smax : R.cap === "months" ? Math.floor(R.capMonths * c.cons_eff + 1e-9) : Infinity;
-      const limit = R.cap === "none" ? Infinity : Math.max(capVal, keepMin ? c.smin : 0);
-      const target = Math.min(base, limit);
-      const calc = { kind: "cover", cons: c.cons_mese, adj: R.consAdj, ce: c.cons_eff, months, raw, round: R.round, rounded, keepMin, smin: c.smin, base,
-        cap: R.cap, capMonths: R.capMonths, limit: isFinite(limit) ? limit : null, capped: target < base, target, giac: c.giac, ord: c.ord, disp: c.disp };
-      return { c, qty: Math.ceil(target - c.disp), calc, note: `Copertura di ${months.toLocaleString("it-IT")} ${months === 1 ? "mese" : "mesi"}` };
-    }).filter(x => x.qty > 0).sort(byPrio);
-  }
-  // valore minimo di riga (pianificazione, monitoraggio e riporto a scorta)
-  if (R.minLine > 0 && (p.mode === "cover" || p.mode === "level")) {
-    const keep = steps.filter(x => x.qty * x.c.cost >= R.minLine - 1e-9); excluded.minline = steps.length - keep.length; steps = keep;
-  }
+  // Senza indice di regolarità nei dati la vendita regolare è il consumo: tutti i codici contano come regolari.
+  const hasReg = cands.some(c => c.regolarita > 0);
+  for (const c of cands) c.vr = c.cons_eff * (hasReg ? Math.min(12, c.regolarita) / 12 : 1);
+  // Precedenza: regolarità più alta, poi consumo più alto; a parità esatta l'ordine alfabetico del codice.
+  const byReg = (a, b) => b.regolarita - a.regolarita || b.cons_mese - a.cons_mese || cmp(a.code, b.code);
+  const mesiTxt = m => `${m.toLocaleString("it-IT", { maximumFractionDigits: 1 })} ${m === 1 ? "mese" : "mesi"}`;
 
-  const need = steps.reduce((t, x) => t + x.qty * x.c.cost, 0);
-  const cap = p.mode === "budget" || p.mode === "target" ? Math.max(0, +p.budget || 0) : (+p.budget > 0 ? +p.budget : Infinity);
-  let left = cap;
   const lines = new Map();
-  const add = (x, q) => {
-    left -= q * x.c.cost;
-    let l = lines.get(x.c.code);
+  const add = (c, qty, note) => {
+    let l = lines.get(c.code);
     if (!l) {
-      const c = x.c, why = [];
+      const why = [];
       if (c.tier === 1) why.push("A zero con fabbisogno"); else if (c.tier === 2) why.push("Sotto SMin");
       if (c.status === "sotto" && c.streak > 1) why.push(`da ${c.streak} settimane`);
       if (c.status === "eccesso") why.push("già sopra SMax");
       if (c.cons_mese > 0) why.push(`consumo medio ${c.cons_mese.toLocaleString("it-IT", { maximumFractionDigits: 2 })} pz/mese${R.consAdj ? ` (considerato ${c.cons_eff.toLocaleString("it-IT", { maximumFractionDigits: 2 })}, ${R.consAdj > 0 ? "+" : ""}${R.consAdj}%)` : ""}`);
-      l = { rank: lines.size + 1, code: c.code, descr: c.descr, loc: c.loc, dg: c.dg, grp: c.grp, cls: c.cls, status: c.status, in_b: c.in_b, tier: c.tier,
-        giac: c.giac, ord: c.ord, smin: c.smin, smax: c.smax, cons_mese: c.cons_mese, cons_eff: c.cons_eff, regolarita: c.regolarita, cost: c.cost, calc: x.calc || null, disp: c.disp, listino: c.listino, streak: c.streak, qty: 0, value: 0, reasons: why, partial: false,
+      l = { rank: 0, code: c.code, descr: c.descr, loc: c.loc, dg: c.dg, grp: c.grp, cls: c.cls, status: c.status, in_b: c.in_b, tier: c.tier,
+        giac: c.giac, ord: c.ord, smin: c.smin, smax: c.smax, cons_mese: c.cons_mese, cons_eff: c.cons_eff, regolarita: c.regolarita, vr: c.vr, cost: c.cost, calc: null,
+        disp: c.disp, listino: c.listino, streak: c.streak, qty: 0, value: 0, reasons: why, partial: false, steps: [],
         qty_sold: c.qty_sold, last_sale: c.last_sale, ven_spc: c.ven_spc, fab: c.fab, prev_giac: c.prev_giac,
-        cover_before: c.cons_eff > 0 ? (c.giac + c.ord) / c.cons_eff : null };
+        cover_before: c.cons_eff > 0 ? c.disp / c.cons_eff : null };
       lines.set(c.code, l);
     }
-    l.qty += q; l.value += q * x.c.cost;
-    (l.steps || (l.steps = [])).push({ note: x.note, qty: q });
-    if (!l.reasons.includes(x.note) && !(x.note === "A zero con fabbisogno" || x.note === "Sotto SMin")) l.reasons.push(x.note);
-    if (q < x.qty) l.partial = true;
+    l.qty += qty; l.value += qty * c.cost;
+    l.steps.push({ note, qty });
+    if (!l.reasons.includes(note) && !(note === "A zero con fabbisogno" || note === "Sotto SMin")) l.reasons.push(note);
+    return l;
   };
-  for (const x of steps) {
-    if (left < 0.01) break;
-    const q = Math.min(x.qty, Math.floor((left + 1e-9) / x.c.cost));
-    if (q > 0) add(x, q);
+  const got = c => { const l = lines.get(c.code); return l ? l.qty : 0; };
+
+  let budget = null, left = null, need = 0, cut = null, smin = null, prop = null, extra = null;
+  if (mode === "cover") {
+    // Obiettivo secondo la domanda del periodo: consumo × mesi, arrotondato come scelto; mai sotto la SMin, mai sopra la SMax.
+    let rows = cands.map(c => {
+      const raw = c.cons_eff * months, rounded = roundFn(raw), base = Math.max(rounded, c.smin), target = Math.min(base, c.top);
+      return { c, qty: Math.ceil(target - c.disp - 1e-9), calc: { kind: "cover", cons: c.cons_mese, adj: R.consAdj, ce: c.cons_eff, months, raw, round: R.round, rounded,
+        smin: c.smin, base, smax: c.top, capped: target < base, target, giac: c.giac, ord: c.ord, disp: c.disp } };
+    });
+    // Quanto la SMax ha tolto rispetto alla domanda del periodo: è il segnale di una SMax più bassa della domanda.
+    cut = { n: 0, pieces: 0, value: 0 };
+    for (const { c, calc } of rows) {
+      if (!calc.capped) continue;
+      const lost = Math.max(0, Math.ceil(calc.base - c.disp - 1e-9)) - Math.max(0, Math.ceil(calc.target - c.disp - 1e-9));
+      if (lost > 0) { cut.n++; cut.pieces += lost; cut.value += lost * c.cost; }
+    }
+    rows = rows.filter(x => x.qty > 0);
+    if (R.minLine > 0) { const keep = rows.filter(x => x.qty * x.c.cost >= R.minLine - 1e-9); excluded.minline = rows.length - keep.length; rows = keep; }   // valore minimo di riga
+    for (const x of rows) { add(x.c, x.qty, `Copertura di ${mesiTxt(months)}`).calc = x.calc; need += x.qty * x.c.cost; }
+  } else {
+    budget = Math.max(0, +p.budget || 0); left = budget;
+    need = cands.reduce((t, c) => t + Math.max(0, Math.ceil(c.top - c.disp - 1e-9)) * c.cost, 0);   // quanto costa portare tutti alla SMax
+    // Passo 1: i codici sotto la SMin tornano alla SMin, in ordine di precedenza.
+    smin = { n: 0, value: 0, short: 0 };
+    for (const c of cands.filter(c => c.disp < c.smin).sort(byReg)) {
+      const want = Math.ceil(c.smin - c.disp - 1e-9), n = Math.min(want, Math.floor((left + 1e-9) / c.cost));
+      if (n > 0) { const l = add(c, n, c.tier === 1 ? "A zero con fabbisogno" : "Sotto SMin"); left -= n * c.cost; smin.n++; smin.value += n * c.cost; if (n < want) l.partial = true; }
+      if (n < want) smin.short++;
+    }
+    // Passo 2: il resto in mesi uguali di vendita regolare, senza superare la SMax.
+    const E2 = cands.map(c => ({ c, vr: c.vr, cost: c.cost, off: 0, cap: Math.max(0, Math.floor(c.top - c.disp - got(c) + 1e-9)) }));
+    const s2 = spread(E2, left, byReg);
+    left = s2.left; prop = { level: s2.level, n: s2.n, value: s2.value, full: s2.full };
+    const info = new Map();
+    for (const e of E2) {
+      if (e.q > 0) add(e.c, e.q, "In proporzione alle vendite regolari");
+      info.set(e.c.code, { p2: { qty: e.q, room: e.cap, capped: e.cap > 0 && e.q >= e.cap, short: e.short } });
+    }
+    // Passo 3 (solo importo libero): quello che resta dopo aver portato tutti alla SMax sale oltre la SMax.
+    if (mode === "free" && s2.full && left >= 0.01) {
+      const E3 = cands.map(c => {
+        const have = c.disp + got(c);
+        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: maxCover ? Math.max(0, Math.floor(maxCover * c.cons_eff + 1e-9) - have) : Infinity };
+      });
+      const s3 = spread(E3, left, byReg);
+      left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null };
+      for (const e of E3) {
+        if (e.q > 0) add(e.c, e.q, "Oltre la SMax");
+        if (e.vr > 0) info.get(e.c.code).p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short };
+      }
+    }
+    for (const l of lines.values()) {
+      const c = info.get(l.code) || {}, first = l.steps.find(s => s.note === "A zero con fabbisogno" || s.note === "Sotto SMin");
+      l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
+        level3: extra ? extra.level : null, p3: c.p3 || null, limit: extra ? extra.limit : null };
+    }
   }
 
-  /* Obiettivo d'acquisto: il budget che resta va in anticipo sui codici che ruotano di più,
-     portandoli tutti alla stessa copertura in mesi (prima quelli con copertura più bassa),
-     entro una rotazione minima e una copertura massima. */
-  let target = null;
-  if (p.mode === "target" && left >= 0.01) {
-    // Nessuna soglia di rotazione: la proporzione la dà il livellamento (quantità = copertura x domanda).
-    // Copertura massima facoltativa: senza limite il livello sale finché l'importo è raggiunto.
-    const minRot = Math.max(0, +p.minRot || 0), maxCov = +p.maxCover > 0 ? Math.min(120, +p.maxCover) : R.cap === "months" ? R.capMonths : Infinity;
-    const pool = cands.filter(c => c.cons_eff > 0 && annuo(c) >= minRot).map(c => {
-      const l = lines.get(c.code), base = c.disp + (l ? l.qty : 0); return { c, m: c.cons_eff, base, top: R.cap === "smax" ? Math.max(0, c.smax - base) : Infinity };
-    });
-    const qtyAt = (x, C) => Math.min(x.top, Math.max(0, Math.floor(C * x.m - x.base + 1e-9)));
-    const costAt = C => pool.reduce((t, x) => t + qtyAt(x, C) * x.c.cost, 0);
-    let lo = 0, hi = isFinite(maxCov) ? maxCov : 12;
-    if (!isFinite(maxCov)) while (costAt(hi) < left && hi < 1200 && costAt(hi) < costAt(hi * 2)) hi *= 2;
-    if (costAt(hi) <= left) lo = hi;
-    else for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2; if (costAt(mid) <= left) lo = mid; else hi = mid; }
-    const alloc = new Map();
-    for (const x of pool) { const q = qtyAt(x, lo); if (q > 0) alloc.set(x, q); }
-    let spent3 = 0; for (const [x, q] of alloc) spent3 += q * x.c.cost;
-    let rem = left - spent3;
-    // rifinitura: un pezzo in più solo ai codici che sarebbero i prossimi a riceverlo (copertura successiva
-    // vicina al livello raggiunto), così i codici lenti non ricevono pezzi solo perché costano poco
-    const tol = Math.max(0.5, lo * 0.1);
-    const next = pool.map(x => ({ x, cov: (x.base + (alloc.get(x) || 0) + 1) / x.m })).filter(y => (alloc.get(y.x) || 0) < y.x.top && y.cov <= Math.min(maxCov, lo + tol) + 1e-9).sort((a, b) => a.cov - b.cov || cmp(a.x.c.code, b.x.c.code));
-    for (const y of next) { if (y.x.c.cost <= rem + 1e-9) { alloc.set(y.x, (alloc.get(y.x) || 0) + 1); rem -= y.x.c.cost; } }
-    const note = `anticipo per l'obiettivo (copertura fino a ${lo.toLocaleString("it-IT", { maximumFractionDigits: 1 })} mesi)`;
-    const order = [...alloc.entries()].sort((a, b) => (a[0].base / a[0].m) - (b[0].base / b[0].m) || cmp(a[0].c.code, b[0].c.code));
-    let n3 = 0, v3 = 0;
-    for (const [x, q] of order) { add({ c: x.c, qty: q, note }, q); n3++; v3 += q * x.c.cost; }
-    target = { level: lo, max_cover: isFinite(maxCov) ? maxCov : null, min_rot: minRot, n: n3, value: v3, pool: pool.length, unspent: Math.max(0, left),
-      capped: isFinite(maxCov) ? left >= 1 && lo >= maxCov - 1e-9 : left > Math.max(100, 0.01 * cap) };
-  }
-  const out = [...lines.values()];
+  // Ordine delle righe: prima chi era sotto la SMin, poi regolarità e consumo.
+  const front = l => (l.tier <= 2 ? 0 : 1);
+  const out = [...lines.values()].sort((a, b) => front(a) - front(b) || byReg(a, b));
   let cum = 0;
-  for (const l of out) { cum += l.value; l.cum = cum; l.cover_after = l.cons_eff > 0 ? (l.giac + l.ord + l.qty) / l.cons_eff : null; }
+  out.forEach((l, n) => { l.rank = n + 1; cum += l.value; l.cum = cum; l.cover_after = l.cons_eff > 0 ? (l.disp + l.qty) / l.cons_eff : null; });
   const t1 = cands.filter(c => c.tier === 1), t2 = cands.filter(c => c.tier === 2);
   const okMin = c => { const l = lines.get(c.code); return l && c.disp + l.qty >= c.smin; };
-  const spent = cap === Infinity ? need : cap - left;
+  const spent = out.reduce((t, l) => t + l.value, 0);
   const byGroup = {};
   for (const l of out) { const g = byGroup[l.grp] || (byGroup[l.grp] = { id: l.grp, label: GROUPS[l.grp] || "Altri codici", n: 0, value: 0 }); g.n++; g.value += l.value; }
   let listInfo = null;
@@ -277,8 +359,8 @@ function scenario(items, p) {
   return {
     lines: out,
     summary: {
-      list: listInfo, target, mode: p.mode, months, rules: { ...R, months, keepMin, minDemand, exclNoScorta: !includeNoParams }, level: p.level, budget: cap === Infinity ? null : cap, spent: p.mode === "target" ? spent : Math.min(spent, need), left: cap === Infinity ? null : Math.max(0, left),
-      need, n_cands: cands.length, excluded, n_lines: out.length, pieces: out.reduce((t, l) => t + l.qty, 0),
+      list: listInfo, mode, months, rules: { ...R, months, maxCover, minDemand }, budget, spent, left: left == null ? null : Math.max(0, budget - spent), need,
+      cut, smin, prop, extra, no_reg: !hasReg, n_cands: cands.length, excluded, n_lines: out.length, pieces: out.reduce((t, l) => t + l.qty, 0),
       zero_tot: t1.length, zero_cov: t1.filter(okMin).length, sotto_tot: t2.length, sotto_cov: t2.filter(okMin).length,
       by_group: Object.values(byGroup).sort((a, b) => b.value - a.value || cmp(a.id, b.id))
     }
@@ -286,28 +368,27 @@ function scenario(items, p) {
 }
 
 /* Regole di riordino: le sceglie ogni utente, valgono per le proposte d'ordine.
- * months       orizzonte di copertura in mesi (pianificazione e monitoraggio)
+ * SMin e SMax non sono regole: le rispetta lo scenario scelto (solo l'importo libero può superare la SMax).
+ * months       periodo da coprire nello scenario a periodo: 1, 2 o 3 mesi
  * consAdj      correzione del consumo medio in percentuale (da -50 a +50)
- * keepMin      porta almeno alla SMin
- * cap          tetto: "none" nessuno, "smax" non oltre la SMax, "months" non oltre capMonths mesi di copertura
  * round        arrotondamento del consumo del periodo: "nearest" al più vicino, "up" per eccesso, "down" per difetto
- * exclNoScorta escludi i codici con SMin e SMax a zero
  * minDemand    escludi i codici con consumo medio sotto questa soglia (pezzi al mese)
  * exclOnDemand escludi i codici segnati come su richiesta
- * minLine      escludi le righe di valore inferiore (euro, pianificazione e monitoraggio)
+ * minLine      escludi le righe di valore inferiore (euro, scenario a periodo)
+ * maxCover     importo libero: mesi di copertura massima per codice (0 = nessun limite)
  * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
-const RULES_DEFAULT = { months: 1, consAdj: 0, keepMin: true, cap: "none", capMonths: 6, round: "nearest", exclNoScorta: true, minDemand: 0, exclOnDemand: true, minLine: 0, alertMonths: 3 };
+const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3 };
+const cleanCover = v => (MAX_COVER.includes(+v) ? +v : 0);
 function cleanRules(r) {
   r = r && typeof r === "object" ? r : {};
   const n = (v, lo, hi, d) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; };
   const b = (v, d) => (typeof v === "boolean" ? v : d);
   const D = RULES_DEFAULT;
   return {
-    months: n(r.months, 0.25, 24, D.months), consAdj: Math.round(n(r.consAdj, -50, 50, D.consAdj)), keepMin: b(r.keepMin, D.keepMin),
-    cap: ["none", "smax", "months"].includes(r.cap) ? r.cap : D.cap, capMonths: n(r.capMonths, 0.5, 24, D.capMonths),
-    round: ["nearest", "up", "down"].includes(r.round) ? r.round : D.round, exclNoScorta: b(r.exclNoScorta, D.exclNoScorta),
+    months: MONTHS.includes(+r.months) ? +r.months : D.months, consAdj: Math.round(n(r.consAdj, -50, 50, D.consAdj)),
+    round: ["nearest", "up", "down"].includes(r.round) ? r.round : D.round,
     minDemand: n(r.minDemand, 0, 1000, D.minDemand), exclOnDemand: b(r.exclOnDemand, D.exclOnDemand), minLine: n(r.minLine, 0, 1e6, D.minLine),
-    alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths)
+    maxCover: cleanCover(r.maxCover), alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths)
   };
 }
 const ROUND = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
@@ -372,4 +453,4 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { RULES_DEFAULT, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
+module.exports = { RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
