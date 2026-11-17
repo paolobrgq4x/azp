@@ -256,7 +256,13 @@ function scenario(items, p) {
   }
   // Senza indice di regolarità nei dati la vendita regolare è il consumo: tutti i codici contano come regolari.
   const hasReg = cands.some(c => c.regolarita > 0);
-  for (const c of cands) c.vr = c.cons_eff * (hasReg ? c.regolarita / 12 : 1);
+  // Peso della regolarità: 100% = consumo × regolarità ÷ 12; 0% = solo consumo; in mezzo la regolarità conta meno (esponente).
+  const wReg = R.regWeight / 100;
+  for (const c of cands) {
+    c.vr = c.cons_eff * (hasReg ? Math.pow(c.regolarita / 12, wReg) : 1);
+    // tetto della giacenza disponibile dopo l'ordine per la copertura massima totale; mai sotto la SMin
+    c.ceil = R.maxTotal ? Math.max(c.smin, Math.floor(R.maxTotal * c.cons_eff + 1e-9)) : Infinity;
+  }
   // Precedenza: regolarità più alta, poi consumo più alto; a parità esatta l'ordine alfabetico del codice.
   const byReg = (a, b) => b.regolarita - a.regolarita || b.cons_mese - a.cons_mese || cmp(a.code, b.code);
   const mesiTxt = m => `${m.toLocaleString("it-IT", { maximumFractionDigits: 1 })} ${m === 1 ? "mese" : "mesi"}`;
@@ -288,15 +294,15 @@ function scenario(items, p) {
   if (mode === "cover") {
     // Obiettivo secondo la domanda del periodo: consumo × mesi, arrotondato come scelto; mai sotto la SMin, mai sopra la SMax.
     let rows = cands.map(c => {
-      const raw = c.cons_eff * months, rounded = roundFn(raw), base = Math.max(rounded, c.smin), target = Math.min(base, c.top);
+      const raw = c.cons_eff * months, rounded = roundFn(raw), base = Math.max(rounded, c.smin), atTop = Math.min(base, c.top), target = Math.min(atTop, c.ceil);
       return { c, qty: Math.ceil(target - c.disp - 1e-9), calc: { kind: "cover", cons: c.cons_mese, adj: R.consAdj, ce: c.cons_eff, months, raw, round: R.round, rounded,
-        smin: c.smin, base, smax: c.top, capped: target < base, target, giac: c.giac, ord: c.ord, disp: c.disp } };
+        smin: c.smin, base, smax: c.top, capped: atTop < base, tcap: target < atTop ? R.maxTotal : 0, target, giac: c.giac, ord: c.ord, disp: c.disp } };
     });
     // Quanto la SMax ha tolto rispetto alla domanda del periodo: è il segnale di una SMax più bassa della domanda.
     cut = { n: 0, pieces: 0, value: 0 };
     for (const { c, calc } of rows) {
       if (!calc.capped) continue;
-      const lost = Math.max(0, Math.ceil(calc.base - c.disp - 1e-9)) - Math.max(0, Math.ceil(calc.target - c.disp - 1e-9));
+      const lost = Math.max(0, Math.ceil(calc.base - c.disp - 1e-9)) - Math.max(0, Math.ceil(Math.min(calc.base, calc.smax) - c.disp - 1e-9));
       if (lost > 0) { cut.n++; cut.pieces += lost; cut.value += lost * c.cost; }
     }
     rows = rows.filter(x => x.qty > 0);
@@ -313,30 +319,31 @@ function scenario(items, p) {
       if (n < want) smin.short++;
     }
     // Passo 2: il resto in mesi uguali di vendita regolare, senza superare la SMax.
-    const E2 = cands.map(c => ({ c, vr: c.vr, cost: c.cost, off: 0, cap: Math.max(0, Math.floor(c.top - c.disp - got(c) + 1e-9)) }));
+    const E2 = cands.map(c => ({ c, vr: c.vr, cost: c.cost, off: 0, cap: Math.max(0, Math.floor(Math.min(c.top, c.ceil) - c.disp - got(c) + 1e-9)), tcap: c.ceil < c.top }));
     const s2 = spread(E2, left, byReg);
     left = s2.left; prop = { level: s2.level, n: s2.n, value: s2.value, full: s2.full };
     const info = new Map();
     for (const e of E2) {
       if (e.q > 0) add(e.c, e.q, "In proporzione alle vendite regolari");
-      info.set(e.c.code, { p2: { qty: e.q, room: e.cap, capped: e.cap > 0 && e.q >= e.cap, short: e.short } });
+      info.set(e.c.code, { p2: { qty: e.q, room: e.cap, capped: e.cap > 0 && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 } });
     }
     // Passo 3 (solo importo libero): quello che resta dopo aver portato tutti alla SMax sale oltre la SMax.
     if (mode === "free" && s2.full && left >= 0.01) {
       const E3 = cands.map(c => {
         const have = c.disp + got(c);
-        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: maxCover ? Math.max(0, Math.floor(c.top + maxCover * c.cons_eff + 1e-9) - have) : Infinity };
+        const lim = Math.min(maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity, c.ceil);
+        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: Number.isFinite(lim) ? Math.max(0, lim - have) : Infinity, tcap: c.ceil < (maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity) };
       });
       const s3 = spread(E3, left, byReg);
       left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null };
       for (const e of E3) {
         if (e.q > 0) add(e.c, e.q, "Oltre la SMax");
-        if (e.vr > 0) info.get(e.c.code).p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short };
+        if (e.vr > 0) info.get(e.c.code).p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 };
       }
     }
     for (const l of lines.values()) {
       const c = info.get(l.code) || {}, first = l.steps.find(s => s.note === "A zero con fabbisogno" || s.note === "Sotto SMin");
-      l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
+      l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, w: R.regWeight, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
         level3: extra ? extra.level : null, p3: c.p3 || null, limit: extra ? extra.limit : null };
     }
   }
@@ -378,9 +385,13 @@ function scenario(items, p) {
  * exclOnDemand escludi i codici segnati come su richiesta
  * minLine      escludi le righe di valore inferiore (euro, scenario a periodo)
  * maxCover     importo libero: al massimo SMax + maxCover mesi di consumo per codice (da 1 a 6; 0 = nessun limite)
+ * regWeight    peso della regolarità nella vendita regolare, da 0 a 100%: vendita regolare = consumo × (regolarità ÷ 12)^(peso)
+ * maxTotal     copertura massima totale in mesi di consumo, in tutti gli scenari (mai sotto la SMin; 0 = nessun tetto)
  * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
-const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3 };
+const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0 };
 const cleanCover = v => (MAX_COVER.includes(+v) ? +v : 0);
+// Copertura massima totale (mesi di consumo), in tutti gli scenari: nessun codice la supera, ma la SMin resta garantita. 0 = nessun tetto.
+const MAX_TOTAL = [0, 2, 3, 4, 5, 6, 9, 12];
 function cleanRules(r) {
   r = r && typeof r === "object" ? r : {};
   const n = (v, lo, hi, d) => { const x = Number(v); return Number.isFinite(x) ? Math.min(hi, Math.max(lo, x)) : d; };
@@ -390,7 +401,8 @@ function cleanRules(r) {
     months: MONTHS.includes(+r.months) ? +r.months : D.months, consAdj: Math.round(n(r.consAdj, -50, 50, D.consAdj)),
     round: ["nearest", "up", "down"].includes(r.round) ? r.round : D.round,
     minDemand: n(r.minDemand, 0, 1000, D.minDemand), exclOnDemand: b(r.exclOnDemand, D.exclOnDemand), minLine: n(r.minLine, 0, 1e6, D.minLine),
-    maxCover: cleanCover(r.maxCover), alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths)
+    maxCover: cleanCover(r.maxCover), alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths),
+    regWeight: Math.round(n(r.regWeight, 0, 100, D.regWeight)), maxTotal: MAX_TOTAL.includes(+r.maxTotal) ? +r.maxTotal : D.maxTotal
   };
 }
 const ROUND = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
@@ -455,4 +467,4 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { REG_MAX, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
+module.exports = { REG_MAX, MAX_TOTAL, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };

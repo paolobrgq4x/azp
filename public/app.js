@@ -218,7 +218,7 @@ const SCENARI = {
 /* ============ Regole di riordino ============
  * Le sceglie ogni utente e restano salvate per lui. Valgono per tutte le proposte d'ordine.
  * SMin e SMax non sono regole: le rispetta lo scenario scelto (solo l'importo libero può superare la SMax). */
-const RULES_DEF = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3 };
+const RULES_DEF = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0 };
 const ROUND_L = { nearest: "al pezzo più vicino", up: "per eccesso", down: "per difetto" };
 function rules() { return state.rules || (state.rules = { ...RULES_DEF, ...((state.me && state.me.user.rules) || {}) }); }
 let rulesTimer;
@@ -239,12 +239,27 @@ function rulesText(r, mode) {
   parts.push(mode === "free" ? "SMin rispettata, SMax superabile" : "SMin e SMax rispettate");
   if (mode === "free") parts.push(r.maxCover ? `al massimo ${oltreTxt(r.maxCover)}` : "nessun limite oltre la SMax");
   parts.push(r.consAdj ? `consumo ${pctTxt(r.consAdj)}` : "consumo come da lista");
+  if (mode !== "cover" && r.regWeight !== 100) parts.push(`peso della regolarità ${fmtN(r.regWeight)}%`);
+  if (r.maxTotal) parts.push(`copertura al massimo ${fmtN(r.maxTotal)} mesi`);
   if (mode === "cover") parts.push(`arrotondamento ${ROUND_L[r.round]}`);
   const ex = ["non a scorta", r.exclOnDemand ? "su richiesta" : "", r.minDemand ? `consumo sotto ${fmtN(r.minDemand, 2)} pz/mese` : "", r.minLine && mode === "cover" ? `righe sotto ${fmtE(r.minLine)}` : ""].filter(Boolean);
   parts.push("esclusi: " + ex.join(", "));
   parts.push(`avviso oltre ${fmtM(r.alertMonths)} mesi`);
   return parts.join(" · ");
 }
+/* Equalizzatore: un cursore verticale per ogni regola numerica. Ogni cursore scorre su valori fissi, dal basso verso l'alto. */
+const mm = v => `${fmtM(v)} ${v === 1 ? "mese" : "mesi"}`;
+const EQ = [
+  { k: "months", name: "Periodo da coprire", on: m => m === "cover", vals: [1, 2, 3], fmt: mm, help: "Quanti mesi di vendite coprire con l'ordine." },
+  { k: "consAdj", name: "Correzione del consumo", on: () => true, vals: [-50, -40, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 40, 50], fmt: v => v ? pctTxt(v) : "0%", help: "Per stagionalità o andamento: in meno se il periodo è più lento, in più se è più vivace." },
+  { k: "regWeight", name: "Peso della regolarità", on: m => m !== "cover", vals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], fmt: v => fmtN(v) + "%", help: "Quanto conta la regolarità nel dividere l'importo. 100%: vendita regolare = consumo × regolarità ÷ 12. 0%: conta solo il consumo." },
+  { k: "maxTotal", name: "Copertura massima", on: () => true, vals: [2, 3, 4, 5, 6, 9, 12, 0], fmt: v => v ? mm(v) : "nessuna", help: "Nessun codice supera questa copertura dopo l'ordine, nemmeno sotto la SMax. La SMin resta sempre garantita." },
+  { k: "maxCover", name: "Oltre la SMax", on: m => m === "free", vals: [1, 2, 3, 4, 5, 6, 0], fmt: v => v ? "+" + mm(v) : "nessun limite", help: "Mesi di consumo che ogni codice può avere in più sopra la SMax. Con un limite, l'importo che non trova posto resta non speso." },
+  { k: "minDemand", name: "Consumo minimo", on: () => true, vals: [0, .05, .1, .2, .3, .5, 1], fmt: v => v ? fmtN(v, 2) + " pz/mese" : "nessuno", help: "I codici che vendono meno di così al mese non vengono proposti." },
+  { k: "minLine", name: "Valore minimo di riga", on: m => m === "cover", vals: [0, 10, 25, 50, 100, 250, 500], fmt: v => v ? fmtE(v) : "nessuno", help: "Le righe che valgono meno di così vengono tolte dalla proposta." },
+  { k: "alertMonths", name: "Avviso oltre", on: () => true, vals: [1, 2, 3, 4, 6, 9, 12], fmt: mm, help: "Le righe che dopo l'ordine superano questa copertura vengono segnalate." }
+];
+const eqIndex = (e, v) => { let best = 0; e.vals.forEach((x, i) => { if (Math.abs(x - v) < Math.abs(e.vals[best] - v)) best = i; }); return best; };
 function renderRules(host, mode, onChange) {
   const r = rules(), cov = mode === "cover", free = mode === "free";
   const seg = (name, cur, opts) => `<div class="chips seg" role="group">${opts.map(([v, l]) => `<button type="button" class="chip" data-r="${name}" data-v="${v}" aria-pressed="${cur === v}">${l}</button>`).join("")}</div>`;
@@ -254,32 +269,33 @@ function renderRules(host, mode, onChange) {
       <div class="rctl"><span class="rl">SMin e SMax</span><p class="small muted">${free
         ? "La SMin è rispettata: i codici che sono sotto vengono riportati alla SMin per primi. La SMax può essere superata, ma solo dopo che tutti i codici ci sono arrivati."
         : "Sono rispettate: nessun codice resta sotto la SMin e nessuno supera la SMax. Per andare oltre la SMax serve lo scenario «" + SCENARI.free.t + "»."}</p></div>
-      ${cov ? `<div class="rctl"><span class="rl">Periodo da coprire</span>${seg("months", r.months, ORIZZ)}</div>` : ""}
-      ${free ? `<div class="rctl"><label for="r_mc" class="rl">Copertura massima per codice oltre la SMax</label><select id="r_mc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === r.maxCover ? " selected" : ""}>${l}</option>`).join("")}</select>
-        <span class="small muted">Facoltativa: mesi di consumo medio che ogni codice può avere in più sopra la SMax. Con un limite, l'importo che non trova posto resta non speso.</span></div>` : ""}
-      <div class="rctl"><label for="r_c">Correzione del consumo medio <b id="r_cv">${r.consAdj ? pctTxt(r.consAdj) : "nessuna"}</b></label>
-        <input type="range" id="r_c" min="-50" max="50" step="5" value="${r.consAdj}"><span class="small muted">Per stagionalità o andamento: −20% se il periodo è più lento, +20% se è più vivace.</span></div>
+    </div>
+    <div class="eq" role="group" aria-label="Equalizzatore delle regole">${EQ.filter(e => e.on(mode)).map(e => {
+      const i = eqIndex(e, r[e.k]);
+      return `<div class="eqc" title="${esc(e.help)}"><span class="eqv" id="eqv_${e.k}">${esc(e.fmt(e.vals[i]))}</span>
+        <input type="range" id="eq_${e.k}" min="0" max="${e.vals.length - 1}" step="1" value="${i}" aria-label="${esc(e.name)}" aria-valuetext="${esc(e.fmt(e.vals[i]))}">
+        <span class="eqn">${esc(e.name)}</span></div>`; }).join("")}</div>
+    <p class="small eqh" id="eqh">Tocca un cursore per sapere a cosa serve; sopra ogni cursore c'è il valore scelto.</p>
+    <div class="rgrid">
       ${cov ? `<div class="rctl"><span class="rl">Arrotondamento del consumo del periodo</span>${seg("round", r.round, [["nearest", "Al più vicino"], ["up", "Per eccesso"], ["down", "Per difetto"]])}</div>` : ""}
       <div class="rctl"><span class="rl">Esclusioni</span>
         <p class="small muted">I codici non tenuti a scorta (SMin e SMax a zero) sono sempre esclusi.</p>
-        <label class="check" for="r_od"><input type="checkbox" id="r_od"${r.exclOnDemand ? " checked" : ""}> Codici segnati come su richiesta</label>
-        <div class="row"><label class="field" for="r_md">Consumo sotto (pz/mese)<input type="text" id="r_md" inputmode="decimal" placeholder="nessuna soglia" value="${r.minDemand ? esc(fmtN(r.minDemand, 2)) : ""}"></label>
-        ${cov ? `<label class="field" for="r_ml">Righe sotto (€)<input type="text" id="r_ml" inputmode="decimal" placeholder="nessuna soglia" value="${r.minLine ? esc(fmtN(r.minLine)) : ""}"></label>` : ""}</div></div>
-      <div class="rctl"><label for="r_al" class="rl">Avviso se la copertura dopo l'ordine supera</label><select id="r_al">${[...new Set([1, 2, 3, 4, 6, 9, 12, r.alertMonths])].sort((a, b) => a - b).map(v => `<option value="${v}"${v === r.alertMonths ? " selected" : ""}>${fmtM(v)} ${v === 1 ? "mese" : "mesi"}</option>`).join("")}</select></div>
+        <label class="check" for="r_od"><input type="checkbox" id="r_od"${r.exclOnDemand ? " checked" : ""}> Codici segnati come su richiesta</label></div>
     </div>
     <div class="row"><button class="btn sm" type="button" id="r_reset">Ripristina i valori iniziali</button><span class="small muted">Valori iniziali: ${esc(rulesText(RULES_DEF, mode))}.</span></div></details>`;
   const d = $("details", host);
   d.addEventListener("toggle", () => { state.rulesOpen = d.open; $(".rlink", d).textContent = d.open ? "Chiudi" : "Modifica"; });
   const set = (k, v, alertOnly) => { if (rules()[k] === v) return; rules()[k] = v; saveRules(); onChange(alertOnly); };
-  const rng = (id, lab, fmt, apply) => { const el = $("#" + id, host); if (!el) return; el.oninput = () => { $("#" + lab, host).textContent = fmt(+el.value); }; el.onchange = () => apply(+el.value); };
-  rng("r_c", "r_cv", v => v ? pctTxt(v) : "nessuna", v => set("consAdj", v));
+  EQ.filter(e => e.on(mode)).forEach(e => {
+    const el = $("#eq_" + e.k, host), out = $("#eqv_" + e.k, host);
+    const help = () => { $("#eqh", host).innerHTML = `<b>${esc(e.name)}</b>: ${esc(e.help)}`; };
+    el.addEventListener("focus", help); el.addEventListener("pointerdown", help);
+    el.oninput = () => { const t = e.fmt(e.vals[+el.value]); out.textContent = t; el.setAttribute("aria-valuetext", t); help(); };
+    el.onchange = () => set(e.k, e.vals[+el.value], e.k === "alertMonths");
+  });
   $$("[data-r]", host).forEach(b => b.onclick = () => set(b.dataset.r, b.dataset.r === "months" ? +b.dataset.v : b.dataset.v));
   const chk = (id, k) => { const el = $("#" + id, host); if (el) el.onchange = () => set(k, el.checked); };
   chk("r_od", "exclOnDemand");
-  const num = (id, k) => { const el = $("#" + id, host); if (el) el.onchange = () => set(k, Math.max(0, parseNum(el.value))); };
-  num("r_md", "minDemand"); num("r_ml", "minLine");
-  if ($("#r_mc", host)) $("#r_mc", host).onchange = e => set("maxCover", +e.target.value);
-  $("#r_al", host).onchange = e => set("alertMonths", +e.target.value, true);
   $("#r_reset", host).onclick = () => { Object.assign(rules(), RULES_DEF); saveRules(); onChange(); };
 }
 /* Il conto di una riga, passo per passo */
@@ -290,25 +306,28 @@ function whyHtml(l) {
     li.push(`Consumo medio dalla lista movimentazione: <b>${n2(c.cons)}</b> pezzi al mese${c.adj ? `, corretto del ${pctTxt(c.adj)}: <b>${n2(c.ce)}</b>` : ""}.`);
     li.push(`Consumo atteso in ${mesi(c.months)}: ${n2(c.ce)} × ${fmtM(c.months)} = ${n2(c.raw)} pezzi, arrotondati ${ROUND_L[c.round]}: <b>${fmtN(c.rounded)}</b>.`);
     if (c.smin > c.rounded) li.push(`La SMin è ${fmtN(c.smin)}: l'obiettivo sale a <b>${fmtN(c.base)}</b>.`);
-    if (c.capped) li.push(`La SMax è ${fmtN(c.smax)}: l'obiettivo scende a <b>${fmtN(c.target)}</b>.`);
+    if (c.capped) li.push(`La SMax è ${fmtN(c.smax)}: l'obiettivo scende a <b>${fmtN(Math.min(c.base, c.smax))}</b>.`);
+    if (c.tcap) li.push(`Copertura massima ${mesi(c.tcap)}: ${n2(c.ce)} × ${fmtM(c.tcap)} = ${n2(c.ce * c.tcap)}; l'obiettivo scende a <b>${fmtN(c.target)}</b>${c.target === c.smin ? ", la SMin" : ""}.`);
     li.push(`Obiettivo ${fmtN(c.target)} − disponibile ${fmtN(c.disp)} (giacenza ${fmtN(c.giac)} + ordini aperti ${fmtN(c.ord)}) = <b>${pezzi(c.target - c.disp)}</b>.`);
   } else if (c && c.kind === "amount") {
     li.push(`Disponibile: ${fmtN(l.disp)} (giacenza ${fmtN(l.giac)} + ordini aperti ${fmtN(l.ord)}); SMin ${fmtN(l.smin)}, SMax ${fmtN(l.smax)}.`);
     if (c.smin_qty) li.push(`Era sotto la SMin: <b>${pezzi(c.smin_qty)}</b> per tornare alla SMin${l.partial ? ", ma l'importo non è bastato per arrivarci" : ""}.`);
     li.push(c.has_reg
-      ? `Vendita regolare: consumo ${n2(c.ce)} × regolarità ${n2(c.reg)} ÷ 12 = <b>${n2(c.vr)}</b> pezzi al mese.`
+      ? (c.w == null || c.w === 100 ? `Vendita regolare: consumo ${n2(c.ce)} × regolarità ${n2(c.reg)} ÷ 12 = <b>${n2(c.vr)}</b> pezzi al mese.`
+        : c.w === 0 ? `Vendita regolare con peso della regolarità 0%: conta solo il consumo, <b>${n2(c.vr)}</b> pezzi al mese.`
+        : `Vendita regolare con peso della regolarità ${fmtN(c.w)}%: consumo ${n2(c.ce)} × (regolarità ${n2(c.reg)} ÷ 12)<sup>${fmtN(c.w / 100, 1)}</sup> = <b>${n2(c.vr)}</b> pezzi al mese.`)
       : `Vendita regolare: <b>${n2(c.vr)}</b> pezzi al mese. Nei dati manca l'indice di regolarità, quindi vale il consumo medio.`);
     const p2 = c.p2, p3 = c.p3;
     if (!(c.vr > 0)) li.push("Senza vendite regolari il codice non riceve altri pezzi in proporzione.");
-    else if (p2 && !p2.room) li.push(c.smin_qty ? "Con la SMin è già alla SMax: entro la SMax non riceve altri pezzi." : "È già alla SMax: entro la SMax non riceve altri pezzi.");
-    else if (p2 && p2.capped) li.push(`In proporzione alle vendite regolari: <b>${pezzi(p2.qty)}</b>, fino alla SMax.`);
+    else if (p2 && !p2.room) li.push(p2.tcap ? `È già alla copertura massima di ${mesi(p2.tcap)}: non riceve altri pezzi.` : c.smin_qty ? "Con la SMin è già alla SMax: entro la SMax non riceve altri pezzi." : "È già alla SMax: entro la SMax non riceve altri pezzi.");
+    else if (p2 && p2.capped) li.push(`In proporzione alle vendite regolari: <b>${pezzi(p2.qty)}</b>, ${p2.tcap ? `fino alla copertura massima di ${mesi(p2.tcap)}` : "fino alla SMax"}.`);
     else if (p2) {
       const ideal = c.level * c.vr, whole = Math.min(p2.qty, Math.floor(ideal + 1e-9)), more = p2.qty - whole;
       li.push(`In proporzione: l'importo ha comprato a tutti i codici ${n3(c.level)} mesi di vendita regolare. Per questo codice ${n3(c.level)} × ${n2(c.vr)} = ${n2(ideal)}, cioè <b>${pezzi(whole)}</b> ${whole === 1 ? "intero" : "interi"}${more > 0 ? `, più <b>${pezzi(more)}</b> con l'avanzo dell'importo` : ""}.`);
     }
     if (p3 && c.level3 != null) {
       const ideal = Math.max(0, c.level3 * c.vr - p3.off), whole = Math.min(p3.qty, Math.floor(ideal + 1e-9)), more = p3.qty - whole;
-      li.push(`Oltre la SMax: il resto dell'importo ha comprato a tutti altri ${n3(c.level3)} mesi di vendita regolare. Per questo codice ${n3(c.level3)} × ${n2(c.vr)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${n2(ideal)}, cioè <b>${pezzi(whole)}</b> ${whole === 1 ? "intero" : "interi"}${p3.capped ? `: si ferma al limite di ${oltreTxt(c.limit)}` : more > 0 ? `, più <b>${pezzi(more)}</b> con l'avanzo dell'importo` : ""}.`);
+      li.push(`Oltre la SMax: il resto dell'importo ha comprato a tutti altri ${n3(c.level3)} mesi di vendita regolare. Per questo codice ${n3(c.level3)} × ${n2(c.vr)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${n2(ideal)}, cioè <b>${pezzi(whole)}</b> ${whole === 1 ? "intero" : "interi"}${p3.capped ? `: ${p3.tcap ? `si ferma alla copertura massima di ${mesi(p3.tcap)}` : `si ferma al limite di ${oltreTxt(c.limit)}`}` : more > 0 ? `, più <b>${pezzi(more)}</b> con l'avanzo dell'importo` : ""}.`);
     }
   } else {
     li.push(`Disponibile: ${fmtN(l.disp)} (giacenza ${fmtN(l.giac)} + ordini aperti ${fmtN(l.ord)}); SMin ${fmtN(l.smin)}, SMax ${fmtN(l.smax)}.`);
@@ -1284,12 +1303,14 @@ async function viewRegole(main) {
   <section class="panel rules"><h3>Pezzi interi</h3><ul>
     <li>I pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'avanzo non basta per un pezzo di un codice si passa agli altri: per questo negli scenari a importo possono restare pochi euro.${ex("con 1.000 €, arrivati a quasi 4 mesi restano 32 €. Toccherebbe alla batteria (1 pezzo a 4 mesi), ma costa 90 €: si passa oltre, e le candele ricevono il 20° e il 21° pezzo (24 €). Avanzano 8 €; spesa 992 €.")}</li></ul></section>
   <section class="panel rules"><h3>Regole che ogni utente può cambiare</h3><ul>
-    <li><b>Correzione del consumo medio</b>, da −20% a +20%, per stagionalità o andamento.${ex("con −20% il filtro olio conta 8 × 0,8 = 6,4 pezzi al mese invece di 8.")}</li>
+    <li><b>Peso della regolarità</b>, da 0% a 100%, negli scenari a importo: quanto conta la regolarità nel dividere l'importo. A 100% la vendita regolare è consumo × regolarità ÷ 12; a 0% conta solo il consumo; in mezzo la regolarità pesa meno.${ex("con 1.000 € e peso 100% le candele ricevono 21 pezzi e la batteria 1; con peso 0% i codici poco regolari guadagnano spazio: candele 19, batteria 3 (arriva alla SMax), filtro olio 18 invece di 25.")}</li>
+    <li><b>Copertura massima</b>, da 2 a 12 mesi o nessuna, in tutti gli scenari: dopo l'ordine nessun codice supera quella copertura, nemmeno sotto la SMax; la SMin resta sempre garantita.${ex("periodo di 3 mesi con copertura massima 2 mesi: filtro olio 16 pezzi (2 × 8) invece di 24, candela 20 invece di 30. In uno scenario a importo, quello che non trova posto resta non speso: con 1.500 € si spendono 626 €.")}</li>
+    <li><b>Correzione del consumo medio</b>, da −50% a +50%, per stagionalità o andamento.${ex("con −20% il filtro olio conta 8 × 0,8 = 6,4 pezzi al mese invece di 8.")}</li>
     <li><b>Arrotondamento</b> nello scenario a periodo: al pezzo più vicino, per eccesso o per difetto.${ex("6,4 pezzi diventano 6 (più vicino), 7 (per eccesso) o 6 (per difetto). La SMin resta il pavimento: il filtro arriva comunque a 8.")}</li>
     <li><b>Righe sotto un valore</b> nello scenario a periodo: le righe che valgono meno vengono tolte.${ex("2 mesi con soglia 100 €: la riga delle candele (8 pezzi × 12 € = 96 €) esce dalla proposta.")}</li>
     <li><b>Esclusioni</b>: codici su richiesta e soglia minima di consumo medio.${ex("con soglia 0,5 pezzi al mese, un codice che ne vende 0,3 non viene proposto.")}</li>
     <li><b>Avviso</b> sulle righe che dopo l'ordine superano un certo numero di mesi di copertura (di base 3).${ex("con 1.000 € il filtro olio arriva a 30 pezzi = 3,75 mesi di consumo, le pastiglie a 3,3 mesi e le candele a 3,3: le tre righe hanno l'avviso «oltre 3 mesi». La batteria, a 1 mese, no.")}</li>
-    <li>Si cambiano dal pannello «Regole di riordino» sopra ogni proposta, in «Nuovo ordine» e in «Scenari d'ordine»; restano salvate per il tuo utente.</li></ul></section>
+    <li>Si cambiano con l'<b>equalizzatore</b> del pannello «Regole di riordino», sopra ogni proposta in «Nuovo ordine» e in «Scenari d'ordine»: un cursore per regola, il valore scelto sopra il cursore. Ogni spostamento ricalcola la proposta e resta salvato per il tuo utente.</li></ul></section>
   <section class="panel"><h3>Le tue regole adesso</h3><ul class="small">${modes.map(m => `<li><b>${esc(SCENARI[m].t)}</b>: ${esc(rulesText(r, m))}</li>`).join("")}</ul></section>
   <section class="panel rules"><h3>Dopo il calcolo</h3><ul>
     <li>Ogni quantità della proposta si apre per vedere il conto passo passo. Ogni riga si accetta o si rifiuta; l'ordine confermato si scarica in Excel o PDF.${ex("nella proposta da 1.000 € tocca il 21 delle candele: vedi disponibile, vendita regolare, mesi comprati e il pezzo in più arrivato con l'avanzo.")}</li></ul></section>`;
