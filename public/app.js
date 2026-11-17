@@ -1391,20 +1391,23 @@ function generateData(o) {
   const loc = () => R() < .08 ? null : R() < .15 ? `${pick("ABHJKM".split(""))}${ri(1, 9)}${pick("ABCDEFG".split(""))}${ri(1, 9)}` : `${pick("ABHJKM".split(""))}${String(ri(1, 30)).padStart(2, "0")}${pick("ABCDEF".split(""))}${ri(1, 6)}`;
   // profilo: quota di codici sotto SMin e sopra SMax nel primo caricamento
   const prof = { equilibrato: [.25, .12, .2], alto: [.08, .35, .35], scarico: [.45, .04, .08] }[o.profile] || [.25, .12, .2];
+  // moltiplicatori delle quantità: qM per movimentazione e scorte (consumo, SMin, SMax), qG per le giacenze
+  const qM = o.qM || 1, qG = o.qG || 1;
   const A = [];
   for (let k = 0; k < o.nA; k++) {
     const [c, pt] = newCode(), listino = Math.round(rf(pt[2], pt[3]) * 100) / 100, costo = Math.round(listino * rf(.55, .62) * 100) / 100;
-    const r = R(), smax = r < .45 ? 0 : r < .8 ? ri(1, 3) : r < .95 ? ri(4, 10) : ri(11, 40);
+    const r = R(), smax0 = r < .45 ? 0 : r < .8 ? ri(1, 3) : r < .95 ? ri(4, 10) : ri(11, 40), smax = smax0 ? Math.max(1, Math.round(smax0 * qM)) : 0;
     const smin = smax === 0 ? 0 : Math.max(1, Math.round(smax * rf(.5, .8)));
     const ord = R() < .9 || smax === 0 ? 0 : ri(1, Math.max(1, smin));
     // consumo medio mensile: per i codici a scorta la SMin è il consumo arrotondato per eccesso; gli altri si vendono poco o nulla
-    const cons_mese = Math.round((smax ? Math.max(.3, smin - rf(.05, .95)) : R() < .3 ? 0 : rf(.02, .45)) * 100) / 100;
+    const cons_mese = Math.round((smax ? Math.max(.02, (smin - rf(.05, .95)) * Math.min(1, smax0 * qM)) : R() < .3 ? 0 : rf(.02, .45) * qM) * 100) / 100;   // con volumi bassi i codici a scorta minima vendono meno di un pezzo al mese
     // indice di regolarità delle vendite (da 0 a 11,99, mai oltre): alto per i codici a scorta, basso per gli altri
     const regolarita = Math.min(11.99, Math.round((smax ? rf(6.5, 11.99) : cons_mese ? rf(.3, 5.9) : 0) * 100) / 100);
     const qv = R() < .12 ? +`2026${String(ri(1, 10)).padStart(2, "0")}${String(ri(1, 28)).padStart(2, "0")}` : R() < .6 ? ri(0, Math.max(1, smax * 2)) : 0;
     A.push({ dg: pick(DGS), code: c, desc: pt[1], loc: loc(), listino, costo, qv, vspc: R() < .95 ? 0 : ri(1, 3), ord, fab: 0, regolarita, cons_mese, smin, smax, scad: R() < .94 ? "N" : "S" });
   }
-  const giacOf = s => {
+  const giacOf = s => { const g = giac0(s) * qG, u = R(); return Math.floor(g + (qG === 1 ? 0 : u)); };   // arrotondamento casuale: in media la giacenza è proprio g
+  const giac0 = s => {
     if (s.smax === 0) return R() < (1 - prof[2]) ? 0 : ri(1, 5);
     const r = R();
     if (r < prof[0]) return ri(0, Math.max(0, s.smin - 1));
@@ -1434,13 +1437,33 @@ function generateData(o) {
   }
   return weeks;
 }
+// Valori dell'ultimo caricamento generato: venduto annuo delle liste (consumo × 12 × costo) e valore delle giacenze al costo.
+function measureData(weeks) {
+  const w = weeks[weeks.length - 1], cost = new Map(w.A.map(x => [x[1], x[5]]));
+  let mov = 0, stock = 0;
+  for (const x of w.A) mov += (x[12] || 0) * 12 * x[5];
+  for (const x of w.B) stock += (x[4] || 0) * (cost.get(x[0]) || 0);
+  return { mov, stock };
+}
+// Genera i dati e, se indicati, avvicina venduto annuo e valore delle giacenze agli importi voluti.
+function generateTarget(o) {
+  const clamp = v => Math.min(1000, Math.max(.01, v));
+  let qM = 1, qG = 1, weeks = generateData({ ...o, qM, qG }), m = measureData(weeks);
+  for (let i = 0; o.mov > 0 && m.mov > 0 && i < 10 && Math.abs(m.mov / o.mov - 1) > .005; i++) { qM = clamp(qM * o.mov / m.mov); weeks = generateData({ ...o, qM, qG }); m = measureData(weeks); }
+  for (let i = 0; o.stock > 0 && m.stock > 0 && i < 10 && Math.abs(m.stock / o.stock - 1) > .005; i++) { qG = clamp(qG * o.stock / m.stock); weeks = generateData({ ...o, qM, qG }); m = measureData(weeks); }
+  return { weeks, ...m };
+}
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, weeks: 1, profile: "equilibrato", seed: Math.floor(Math.random() * 1e6) });
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", seed: Math.floor(Math.random() * 1e6) });
   main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
   <form class="panel" id="gf" novalidate>
+    <div class="grid2">
+      <label class="field" for="gna">Liste movimentazione: numero di codici<input type="text" id="gna" inputmode="numeric" value="${esc(fmtN(P.nA))}"></label>
+      <label class="field" for="gmv">Liste movimentazione: volume in euro (venduto annuo al netto)<input type="text" id="gmv" inputmode="decimal" placeholder="automatico" value="${P.mov ? esc(fmtN(P.mov)) : ""}"></label>
+      <label class="field" for="gnb">Giacenze: numero di codici<input type="text" id="gnb" inputmode="numeric" value="${esc(fmtN(P.nB))}"></label>
+      <label class="field" for="gst">Giacenze: volume in euro (valore a magazzino al netto)<input type="text" id="gst" inputmode="decimal" placeholder="automatico" value="${P.stock ? esc(fmtN(P.stock)) : ""}"></label>
+    </div>
     <div class="grid3">
-      <label class="field" for="gna">Codici nelle liste movimentazione<input type="text" id="gna" inputmode="numeric" value="${esc(fmtN(P.nA))}"></label>
-      <label class="field" for="gnb">Codici nelle giacenze<input type="text" id="gnb" inputmode="numeric" value="${esc(fmtN(P.nB))}"></label>
       <label class="field" for="gpr">Situazione del magazzino<select id="gpr">${[["equilibrato", "Equilibrata"], ["alto", "Magazzino alto (molti eccessi)"], ["scarico", "Magazzino scarico (molti sotto scorta)"]].map(([v, l]) => `<option value="${v}"${v === P.profile ? " selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="field" for="gw">Caricamenti<select id="gw">${[1, 2, 4, 6, 8].map(v => `<option value="${v}"${v === P.weeks ? " selected" : ""}>${v === 1 ? "1 (solo i dati più recenti)" : v + " successivi"}</option>`).join("")}</select></label>
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
@@ -1450,6 +1473,7 @@ async function viewProva(main) {
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
     <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
+    <li><b>Volumi in euro</b> (facoltativi): il venduto annuo è consumo medio mensile × 12 × prezzo netto di tutti i codici delle liste; il valore a magazzino è giacenza × prezzo netto. La piattaforma adatta le quantità (consumi, SMin, SMax e giacenze) per avvicinarsi agli importi, senza cambiare i prezzi. Con più caricamenti, gli importi valgono per l'ultimo. Lasciati vuoti, i volumi escono da soli in base al numero di codici.</li>
     <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti, SMin, SMax, consumo medio mensile e indice di regolarità coerenti tra loro. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
     <li>Con più caricamenti, i dati evolvono da uno all'altro: vendite, arrivi degli ordini aperti, riordini e qualche revisione delle scorte. Così si vedono muoversi andamento, indicatori e confronti.</li>
     <li>Ricevi un unico file .zip con due Excel per ogni caricamento: liste movimentazione e giacenze. Caricali in «Nuovo ordine» o in «Carica dati»; con più caricamenti, uno alla volta e in ordine di numero.</li></ul></section>`;
@@ -1457,12 +1481,13 @@ async function viewProva(main) {
     e.preventDefault();
     const n = v => Math.round(parseNum(v));
     P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
+    P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
     P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1;
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
       st.textContent = "Genero i dati…"; await new Promise(r => setTimeout(r, 30));
-      const weeks = generateData(P), zip = new window.JSZip();
+      const G = generateTarget(P), weeks = G.weeks, zip = new window.JSZip();
       for (let w = 0; w < weeks.length; w++) {
         const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
         st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
@@ -1475,7 +1500,7 @@ async function viewProva(main) {
       st.textContent = "Comprimo i file…";
       const blob = await zip.generateAsync({ type: "blob" }), url = URL.createObjectURL(blob), a = document.createElement("a");
       a.href = url; a.download = `dati_di_prova_${P.nA}_codici${P.weeks > 1 ? `_${P.weeks}_caricamenti` : ""}.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-      st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip.`;
+      st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip. ${weeks.length > 1 ? "Ultimo caricamento: venduto" : "Venduto"} annuo ${fmtE(G.mov)}, valore a magazzino ${fmtE(G.stock)}.`;
     } catch (x) { st.textContent = ""; toast("Generazione non riuscita: " + x.message); }
     finally { b.disabled = false; }
   };
