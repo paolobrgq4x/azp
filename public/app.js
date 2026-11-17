@@ -1454,10 +1454,12 @@ function generateData(o) {
     const ord = R() < .9 || smax === 0 ? 0 : ri(1, Math.max(1, smin));
     // consumo medio mensile: per i codici a scorta la SMin è il consumo arrotondato per eccesso; gli altri si vendono poco o nulla
     const cons_mese = Math.round((smax ? Math.max(.02, (smin - rf(.05, .95)) * Math.min(1, smax0 * qM)) : R() < .3 ? 0 : rf(.02, .45) * qM) * 100) / 100;   // con volumi bassi i codici a scorta minima vendono meno di un pezzo al mese
-    // indice di regolarità delle vendite (da 0 a 11,99, mai oltre): alto per i codici a scorta, basso per gli altri.
-    // Il consumo medio dimentica in fretta (×0,7 al mese), la regolarità lentamente (×0,9): un codice che non vende da mesi
-    // ha consumo 0 ma regolarità ancora sopra zero. A zero restano solo i codici mai venduti (circa 1 su 10 di quelli senza consumo).
-    const regolarita = Math.min(11.99, Math.round((smax ? rf(6.5, 11.99) : cons_mese ? rf(.3, 5.9) : R() < .9 ? rf(.05, 2.5) : 0) * 100) / 100);
+    // indice di regolarità delle vendite (da 0 a 11,99, mai oltre): ogni mese si moltiplica per 0,9 e sale di 1,2 se il codice ha venduto,
+    // quindi a regime vale circa 12 × quota dei mesi con almeno una vendita. Con vendite casuali a C pezzi al mese quella quota è 1 − e^(−C),
+    // ridotta un po' perché le vendite arrivano a gruppi: chi vende 0,3 pezzi al mese sta intorno a 3, chi ne vende 3 o più vicino a 12.
+    // Il consumo medio dimentica in fretta (×0,7 al mese), la regolarità lentamente: un codice che non vende da mesi ha consumo 0 ma regolarità
+    // ancora sopra zero. A zero restano solo i codici mai venduti (circa 1 su 10 di quelli senza consumo).
+    const regolarita = Math.min(11.99, Math.round((cons_mese > 0 ? 12 * (1 - Math.exp(-cons_mese)) * rf(.8, 1) : R() < .9 ? rf(.05, 2.5) : 0) * 100) / 100);
     const qv = R() < .12 ? +`2026${String(ri(1, 10)).padStart(2, "0")}${String(ri(1, 28)).padStart(2, "0")}` : R() < .6 ? ri(0, Math.max(1, smax * 2)) : 0;
     A.push({ dg: pick(DGS), code: c, desc: pt[1], loc: loc(), listino, costo, qv, vspc: R() < .95 ? 0 : ri(1, 3), ord, fab: 0, regolarita, cons_mese, smin, smax, scad: R() < .94 ? "N" : "S" });
   }
