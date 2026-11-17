@@ -51,16 +51,6 @@ const tempPassword = () => {
 const fail = (res, code, msg) => res.status(code).json({ error: msg });
 const wrap = fn => (req, res) => fn(req, res).catch(e => { console.error(e); fail(res, 500, "Errore interno. Riprova tra poco."); });
 
-function mondayOf(s) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ""));
-  if (!m) return null;
-  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
-  if (isNaN(d)) return null;
-  const dow = (d.getUTCDay() + 6) % 7;
-  d.setUTCDate(d.getUTCDate() - dow);
-  return d.toISOString().slice(0, 10);
-}
-
 /* ---------- Sessione e protezione ---------- */
 app.use("/api", (req, res, next) => {
   if (req.method !== "GET" && req.get("X-Req") !== "1") return fail(res, 403, "Richiesta non valida.");
@@ -233,7 +223,7 @@ app.get("/api/uploads", auth(true), wrap(async (req, res) => {
 
 app.post("/api/snapshots/delete", small, auth(true), wrap(async (req, res) => {
   const ids = (Array.isArray(req.body.ids) ? req.body.ids : []).map(Number).filter(Number.isInteger).slice(0, 5000);
-  if (!ids.length) return fail(res, 400, "Nessuna settimana selezionata.");
+  if (!ids.length) return fail(res, 400, "Nessun caricamento selezionato.");
   const n = await tx(async c => {
     const r = await c.query("DELETE FROM snapshots WHERE id = ANY($1::int[]) RETURNING dealer_id, week_date", [ids]);
     const first = new Map();
@@ -265,9 +255,12 @@ app.delete("/api/dealers/:id", auth(true), wrap(async (req, res) => {
   res.json({ ok: true, ...r });
 }));
 
-/* ---------- Settimane caricate ---------- */
+/* ---------- Caricamenti ----------
+ * Ogni caricamento ha la data del giorno in cui è stato fatto (week_date) e l'ora (uploaded_at).
+ * L'ordine dei caricamenti è: data, ora, id. */
+const SNAP_ORDER = "week_date, uploaded_at, id";
 async function relink(c, dealerId, fromWeek) {
-  const { rows } = await c.query("SELECT id, week_date FROM snapshots WHERE dealer_id = $1 ORDER BY week_date", [dealerId]);
+  const { rows } = await c.query(`SELECT id, week_date FROM snapshots WHERE dealer_id = $1 ORDER BY ${SNAP_ORDER}`, [dealerId]);
   for (let i = 0; i < rows.length; i++) {
     if (rows[i].week_date < fromWeek) continue;
     const cur = rows[i].id, prev = i > 0 ? rows[i - 1].id : null;
@@ -286,16 +279,13 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   const dealerId = u.role === "admin" ? +req.body.dealer_id : u.dealer_id;
   if (!dealerId) return fail(res, 400, "Scegli la concessionaria.");
   if (!canSee(u, dealerId)) return fail(res, 403, "Non puoi caricare dati per questa concessionaria.");
-  const week = mondayOf(req.body.week);
-  if (!week) return fail(res, 400, "Data della settimana non valida.");
+  // data del caricamento: il giorno di oggi in Italia
+  const week = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
   let result;
   try { result = cross(req.body.rowsA, req.body.rowsB); } catch (e) { return fail(res, 400, e.message); }
   if (!result.items.length) return fail(res, 400, "Nessun codice trovato nei file: controlla le colonne scelte.");
 
   const out = await tx(async c => {
-    const ex = await c.query("SELECT id FROM snapshots WHERE dealer_id = $1 AND week_date = $2", [dealerId, week]);
-    if (ex.rowCount && !req.body.replace) return { exists: true };
-    if (ex.rowCount) await c.query("DELETE FROM snapshots WHERE id = $1", [ex.rows[0].id]);
     const k = result.kpi;
     const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
@@ -312,7 +302,6 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
     await relink(c, dealerId, week);
     return { id: sid, week, dup: result.dup, kpi: k };
   });
-  if (out.exists) return res.status(409).json({ exists: true, error: "Per questa settimana i dati sono già stati caricati." });
   res.json(out);
 }));
 
@@ -321,7 +310,7 @@ app.get("/api/dealers/:id/snapshots", auth(), wrap(async (req, res) => {
   if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
   const { rows } = await pool.query(`SELECT s.id, s.week_date, s.uploaded_at, s.file_a, s.file_b, s.n_codes, s.val_tot, s.n_sotto, s.pz_sotto, s.val_sotto,
       s.n_eccesso, s.val_eccesso, s.n_fermo, s.val_fermo, s.n_nogiac, s.n_nostorico, u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
-    FROM snapshots s LEFT JOIN users u ON u.id = s.uploaded_by WHERE s.dealer_id = $1 ORDER BY s.week_date`, [id]);
+    FROM snapshots s LEFT JOIN users u ON u.id = s.uploaded_by WHERE s.dealer_id = $1 ORDER BY s.week_date, s.uploaded_at, s.id`, [id]);
   res.json(rows);
 }));
 
@@ -346,8 +335,8 @@ const SORTS = { code: "code", descr: "descr", loc: "loc", giac: "giac", ord: "or
   val_giac: "val_giac", val_action: "val_action", streak: "streak", var: "(giac - prev_giac)", status: PRIO };
 
 async function snapshotFor(req, res) {
-  const { rows } = await pool.query("SELECT id, dealer_id, week_date FROM snapshots WHERE id = $1", [+req.params.id]);
-  if (!rows[0]) { fail(res, 404, "Settimana non trovata."); return null; }
+  const { rows } = await pool.query("SELECT id, dealer_id, week_date, uploaded_at FROM snapshots WHERE id = $1", [+req.params.id]);
+  if (!rows[0]) { fail(res, 404, "Caricamento non trovato."); return null; }
   if (!canSee(req.user, rows[0].dealer_id)) { fail(res, 403, "Accesso non consentito."); return null; }
   return rows[0];
 }
@@ -371,9 +360,9 @@ app.get("/api/snapshots/:id/items", auth(), wrap(async (req, res) => {
       FROM ${SRC} WHERE ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, params),
     pool.query(`SELECT count(*) AS n FROM ${SRC} WHERE ${where}`, params),
     pool.query(`SELECT ${Object.entries(FILTERS).map(([k, v]) => `count(*) FILTER (WHERE ${v}) AS ${k}`).join(", ")} FROM ${SRC}`, [s.id]),
-    pool.query("SELECT week_date FROM snapshots WHERE dealer_id = $1 AND week_date < $2 ORDER BY week_date DESC LIMIT 1", [s.dealer_id, s.week_date])
+    pool.query("SELECT week_date, uploaded_at FROM snapshots WHERE dealer_id = $1 AND (week_date, uploaded_at, id) < ($2::date, $3::timestamptz, $4::int) ORDER BY week_date DESC, uploaded_at DESC, id DESC LIMIT 1", [s.dealer_id, s.week_date, s.uploaded_at, s.id])
   ]);
-  res.json({ rows: items.rows, total: total.rows[0].n, counts: counts.rows[0], prev_week: prev.rows[0] ? prev.rows[0].week_date : null });
+  res.json({ rows: items.rows, total: total.rows[0].n, counts: counts.rows[0], prev_week: prev.rows[0] ? prev.rows[0].week_date : null, prev_at: prev.rows[0] ? prev.rows[0].uploaded_at : null });
 }));
 
 const ITEM_COLS = "code, descr, loc, dg, status, in_b, giac, ord, smin, smax, delta, cost, val_giac, val_action, regolarita, cons_mese, listino, qty_sold, last_sale, ven_spc, fab, streak, prev_giac";
@@ -392,7 +381,7 @@ app.post("/api/snapshots/:id/scenario", express.json({ limit: "5mb" }), auth(), 
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
   // regole: quelle inviate con la richiesta, altrimenti quelle salvate dall'utente
   const rules = cleanRules(b.rules || req.user.rules);
-  res.json({ week: s.week_date, ...scenario(rows, { mode, budget, months: b.months, maxCover: b.maxCover, listOverride: b.listOverride !== false,
+  res.json({ week: s.week_date, at: s.uploaded_at, ...scenario(rows, { mode, budget, months: b.months, maxCover: b.maxCover, listOverride: b.listOverride !== false,
     minDemand: b.minDemand != null ? Math.min(1000, Math.max(0, +b.minDemand || 0)) : rules.minDemand, flagged: fl, filters, rules }) });
 }));
 
@@ -417,19 +406,19 @@ app.get("/api/snapshots/:id/filters", auth(), wrap(async (req, res) => {
 app.get("/api/snapshots/:id/kpi", auth(), wrap(async (req, res) => {
   const s = await snapshotFor(req, res); if (!s) return;
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
-  res.json({ week: s.week_date, ...kpis(rows, fl) });
+  res.json({ week: s.week_date, at: s.uploaded_at, ...kpis(rows, fl) });
 }));
 
 app.get("/api/dealers/:id/kpitrend", auth(), wrap(async (req, res) => {
   const id = +req.params.id;
   if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
-  const { rows } = await pool.query(`SELECT s.id, s.week_date, s.val_tot,
+  const { rows } = await pool.query(`SELECT s.id, s.week_date, s.uploaded_at, s.val_tot,
       count(*) FILTER (WHERE i.smin > 0 AND i.status <> 'nostorico' AND f.code IS NULL) AS n_dem,
       count(*) FILTER (WHERE i.smin > 0 AND i.giac > 0 AND i.status <> 'nostorico' AND f.code IS NULL) AS n_disp,
       coalesce(sum(i.cons_mese * 12 * i.cost) FILTER (WHERE i.status <> 'nostorico'), 0) AS cons_year
     FROM snapshots s JOIN items i ON i.snapshot_id = s.id LEFT JOIN code_flags f ON f.dealer_id = s.dealer_id AND f.code = i.code
-    WHERE s.dealer_id = $1 GROUP BY s.id ORDER BY s.week_date`, [id]);
-  res.json(rows.map(r => ({ week_date: r.week_date, service: r.n_dem ? r.n_disp / r.n_dem : null, coverage_months: r.cons_year > 0 ? r.val_tot / (r.cons_year / 12) : null })));
+    WHERE s.dealer_id = $1 GROUP BY s.id ORDER BY s.week_date, s.uploaded_at, s.id`, [id]);
+  res.json(rows.map(r => ({ week_date: r.week_date, uploaded_at: r.uploaded_at, service: r.n_dem ? r.n_disp / r.n_dem : null, coverage_months: r.cons_year > 0 ? r.val_tot / (r.cons_year / 12) : null })));
 }));
 
 async function flaggedSet(dealerId) {
@@ -440,7 +429,7 @@ async function flaggedSet(dealerId) {
 app.get("/api/dealers/:id/flags", auth(), wrap(async (req, res) => {
   const id = +req.params.id; if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
   const { rows } = await pool.query(`SELECT f.code, f.note, f.set_at, u.full_name, u.username,
-      (SELECT i.descr FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = f.dealer_id AND i.code = f.code ORDER BY s.week_date DESC LIMIT 1) AS descr
+      (SELECT i.descr FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = f.dealer_id AND i.code = f.code ORDER BY s.week_date DESC, s.uploaded_at DESC, s.id DESC LIMIT 1) AS descr
     FROM code_flags f LEFT JOIN users u ON u.id = f.set_by WHERE f.dealer_id = $1 ORDER BY f.code`, [id]);
   res.json(rows);
 }));
@@ -464,9 +453,9 @@ app.get("/api/history", auth(), wrap(async (req, res) => {
   if (!canSee(req.user, dealerId)) return fail(res, 403, "Accesso non consentito.");
   if (!c) return res.json({ rows: [], weeks: [] });
   const [h, w] = await Promise.all([
-    pool.query(`SELECT s.week_date, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak
-      FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = $1 AND i.code = $2 ORDER BY s.week_date`, [dealerId, c]),
-    pool.query("SELECT week_date FROM snapshots WHERE dealer_id = $1 ORDER BY week_date", [dealerId])
+    pool.query(`SELECT s.week_date, s.uploaded_at, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak
+      FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = $1 AND i.code = $2 ORDER BY s.week_date, s.uploaded_at, s.id`, [dealerId, c]),
+    pool.query(`SELECT week_date FROM snapshots WHERE dealer_id = $1 ORDER BY ${SNAP_ORDER}`, [dealerId])
   ]);
   let suggest = [];
   if (!h.rowCount) {
@@ -480,12 +469,12 @@ app.get("/api/history", auth(), wrap(async (req, res) => {
 
 app.get("/api/overview", auth(true), wrap(async (req, res) => {
   const { rows } = await pool.query(`SELECT d.id, d.name, d.code,
-      l.id AS snap_id, l.week_date, l.n_codes, l.val_tot, l.n_sotto, l.val_sotto, l.n_eccesso, l.val_eccesso, l.n_fermo, l.val_fermo,
+      l.id AS snap_id, l.week_date, l.uploaded_at, l.n_codes, l.val_tot, l.n_sotto, l.val_sotto, l.n_eccesso, l.val_eccesso, l.n_fermo, l.val_fermo,
       p.week_date AS p_week, p.val_tot AS p_val_tot, p.val_sotto AS p_val_sotto, p.val_eccesso AS p_val_eccesso, p.val_fermo AS p_val_fermo,
       (SELECT count(*) FROM snapshots x WHERE x.dealer_id = d.id) AS n_weeks
     FROM dealers d
-    LEFT JOIN LATERAL (SELECT * FROM snapshots s WHERE s.dealer_id = d.id ORDER BY week_date DESC LIMIT 1) l ON true
-    LEFT JOIN LATERAL (SELECT * FROM snapshots s WHERE s.dealer_id = d.id AND s.week_date < l.week_date ORDER BY week_date DESC LIMIT 1) p ON true
+    LEFT JOIN LATERAL (SELECT * FROM snapshots s WHERE s.dealer_id = d.id ORDER BY week_date DESC, uploaded_at DESC, id DESC LIMIT 1) l ON true
+    LEFT JOIN LATERAL (SELECT * FROM snapshots s WHERE s.dealer_id = d.id AND (s.week_date, s.uploaded_at, s.id) < (l.week_date, l.uploaded_at, l.id) ORDER BY week_date DESC, uploaded_at DESC, id DESC LIMIT 1) p ON true
     ORDER BY d.name`);
   res.json(rows);
 }));

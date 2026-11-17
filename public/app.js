@@ -11,18 +11,10 @@ const fmtE2 = n => (Number(n) || 0).toLocaleString("it-IT", { style: "currency",
 const fmtEk = n => { const a = Math.abs(n); return a >= 1e6 ? fmtN(n / 1e6, 2) + " M€" : a >= 1e4 ? fmtN(n / 1e3, 0) + " k€" : fmtE(n); };
 const dIt = s => { if (!s) return "–"; const [y, m, d] = s.slice(0, 10).split("-"); return `${d}/${m}/${y}`; };
 const dShort = s => { const [, m, d] = s.slice(0, 10).split("-"); return `${d}/${m}`; };
-function isoWeek(s) {
-  const [y, m, d] = s.split("-").map(Number); const dt = new Date(Date.UTC(y, m - 1, d));
-  const day = (dt.getUTCDay() + 6) % 7; dt.setUTCDate(dt.getUTCDate() - day + 3);
-  const fy = new Date(Date.UTC(dt.getUTCFullYear(), 0, 4));
-  return 1 + Math.round(((dt - fy) / 864e5 - 3 + ((fy.getUTCDay() + 6) % 7)) / 7);
-}
-const weekLabel = s => `Settimana ${isoWeek(s)} · ${dIt(s)}`;
-function mondayISO(date = new Date()) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
-  return d.toISOString().slice(0, 10);
-}
+const romeDay = t => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+const romeTime = t => new Date(t).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
+// Un caricamento si indica con la data dei dati e, se è stato caricato quel giorno, con l'ora.
+const snapLabel = (d, at) => `${dIt(d)}${at && d && romeDay(at) === String(d).slice(0, 10) ? ` ore ${romeTime(at)}` : ""}`;
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
 
 async function api(method, url, body) {
@@ -72,7 +64,7 @@ function infoBox(title, html) {
 const state = {
   me: null, dealers: [], dealerId: null, snapshots: [],
   analisi: { snapId: null, f: "tutti", q: "", sort: null, dir: "asc", offset: 0, limit: 200 },
-  codice: "", upload: { A: [], B: [], week: mondayISO() }, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
+  codice: "", upload: { A: [], B: [] }, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
 };
 const STATI = { sotto: "Sotto scorta", eccesso: "Eccesso", fermo: "Fermo", ok: "In linea", nostorico: "Senza storico" };
 const isAdmin = () => state.me && state.me.user.role === "admin";
@@ -145,7 +137,7 @@ const VIEWS = [
   { id: "analisi", label: "Analisi codici" },
   { id: "ordine", label: "Scenari d'ordine" },
   { id: "codice", label: "Scheda codice" },
-  { id: "carica", label: "Carica settimana" },
+  { id: "carica", label: "Carica dati" },
   { id: "prova", label: "Dati di prova" },
   { id: "admin", label: "Amministrazione", admin: true }
 ];
@@ -315,7 +307,7 @@ async function viewNuovo(main) {
   if (needDealer(main)) return;
   if (!state.snapshots.length) await loadSnapshots();
   if (W.dealer !== state.dealerId) { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [] }); W.dealer = state.dealerId; state.ordine.history = []; }
-  main.innerHTML = `<div class="head"><div><h1>Nuovo ordine</h1><p class="sub">${esc(dealerName(state.dealerId))}. Scegli l'obiettivo, carica i dati della settimana, scegli i codici e ottieni il risultato.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Nuovo ordine</h1><p class="sub">${esc(dealerName(state.dealerId))}. Scegli l'obiettivo, carica i dati più recenti, scegli i codici e ottieni il risultato.</p></div></div>
     <ol class="stepper" aria-label="Avanzamento">${WSTEPS.map((t, k) => `<li class="${k + 1 < W.step ? "done" : k + 1 === W.step ? "cur" : ""}"${k + 1 === W.step ? ' aria-current="step"' : ""}><span class="sn">${k + 1 < W.step ? "✓" : k + 1}</span><span class="st">${t}</span></li>`).join("")}</ol>
     ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(SCENARI[W.purpose].t)}</b> · ${esc(W.purpose === "cover" ? orizzLabel(rules().months) : fmtE(wBudget()))} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
     <div id="wbody"></div>`;
@@ -361,20 +353,17 @@ function wStep1(body, main) {
   };
 }
 function wStep2(body, main) {
-  const U = state.upload, cur = mondayISO(), last = state.snapshots[state.snapshots.length - 1];
-  const already = last && last.week_date >= cur;
-  body.innerHTML = `${last ? `<div class="msg${already ? "" : " old"}">${already ? `I dati della ${esc(weekLabel(last.week_date))} sono già stati caricati` : `L'ultima settimana caricata è la ${esc(weekLabel(last.week_date))}, caricata`}${last.uploaded_by_name ? ` da ${esc(last.uploaded_by_name)}` : ""} il ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}.${already ? "" : " Per un risultato aggiornato conviene caricare i dati di questa settimana."}
-      <div class="row wrow"><button class="btn ${already ? "primary" : ""} sm" type="button" id="wuse">Usa questi dati e scegli i codici</button><span class="small muted">oppure carica i file qui sotto</span></div></div>` : ""}
+  const U = state.upload, last = state.snapshots[state.snapshots.length - 1];
+  const fresh = last && romeDay(last.uploaded_at) === romeDay(Date.now());
+  body.innerHTML = `${last ? `<div class="msg${fresh ? "" : " old"}">Ultimo caricamento: ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}${last.uploaded_by_name ? `, da ${esc(last.uploaded_by_name)}` : ""}.${fresh ? "" : " Per un risultato aggiornato conviene caricare le liste e le giacenze più recenti."}
+      <div class="row wrow"><button class="btn ${fresh ? "primary" : ""} sm" type="button" id="wuse">Usa questi dati e scegli i codici</button><span class="small muted">oppure carica i file qui sotto</span></div></div>` : ""}
     <section class="step" id="stepA"><span class="num">PASSO 2 DI 5</span><h2>Carica le liste movimentazione</h2>
       <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se è divisa in più file, aggiungili tutti: vengono uniti.</p>
-      <label class="field wk" for="wk">Settimana di riferimento<input type="date" id="wk" value="${U.week}"></label><p class="meta" id="wkl"></p>
       <div id="listA"></div>
       <div class="row"><label class="btn" for="fileA">Scegli i file Excel</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
     </section>
     <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><button class="btn primary" type="button" id="wnext">Avanti: giacenze</button></div>`;
-  const wk = $("#wk"), upd = () => { const v = wk.value; if (v) { const [y, m, d] = v.split("-").map(Number); U.week = mondayISO(new Date(y, m - 1, d)); $("#wkl").textContent = weekLabel(U.week) + " (lunedì)"; } };
-  wk.onchange = upd; upd();
   wireSlot("A"); renderSlot("A");
   if ($("#wuse")) $("#wuse").onclick = () => { W.snapId = last.id; W.lookup = null; wGo(main, 4); };
   $("#wback").onclick = () => wGo(main, 1);
@@ -391,15 +380,15 @@ function wStep3(body, main) {
   const U = state.upload;
   body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
       <p class="meta">Fotografia del magazzino con codice e quantità disponibile. Con più file, le quantità dello stesso codice si sommano.</p>
-      <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b> · ${esc(weekLabel(U.week))}</p>
+      <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
     </section>
-    <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><div class="row"><span class="small muted" id="sstat"></span><button class="btn primary" type="button" id="save">Incrocia e salva la settimana</button></div></div>`;
+    <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><div class="row"><span class="small muted" id="sstat"></span><button class="btn primary" type="button" id="save">Incrocia e salva</button></div></div>`;
   wireSlot("B"); renderSlot("B"); updateSave();
   $("#wback").onclick = () => wGo(main, 2);
-  $("#save").onclick = () => save(false, r => { W.snapId = r.id; W.lookup = null; wGo(main, 4); });
+  $("#save").onclick = () => save(r => { W.snapId = r.id; W.lookup = null; wGo(main, 4); });
 }
 async function wLookup() {
   if (!W.codes.length) { W.lookup = { rows: [], missing: [] }; return; }
@@ -411,7 +400,7 @@ async function wStep4(body, main) {
   const meta = await api("GET", `/api/snapshots/${W.snapId}/filters`);
   const opt = (id, title, text) => `<label class="choice${W.codesMode === id ? " on" : ""}" for="cm_${id}"><input type="radio" name="cm" id="cm_${id}" value="${id}"${W.codesMode === id ? " checked" : ""}><span><b>${title}</b><span class="small muted">${text}</span></span></label>`;
   body.innerHTML = `<section class="panel"><span class="num mono small muted">PASSO 4 DI 5</span><h2>Su quali codici vuoi lavorare?</h2>
-      <p class="small muted">Dati della ${esc(weekLabel(snap.week_date))}: ${fmtN(snap.n_codes)} codici.</p>
+      <p class="small muted">Dati del ${esc(snapLabel(snap.week_date, snap.uploaded_at))}: ${fmtN(snap.n_codes)} codici.</p>
       <div class="choices">${opt("all", "Tutti i codici", "La piattaforma valuta l'intero magazzino.")}${opt("manual", "Li scrivo io", "Inserisci i codici uno alla volta o incollane un elenco.")}${opt("excel", "Li carico da un Excel", "Un file con una colonna di codici.")}</div>
       <div id="cbox"></div>
       <details class="filters"${W.groups.length || W.abc.length ? " open" : ""}><summary>Restringi ancora (facoltativo)</summary><div class="fgrid">
@@ -446,10 +435,10 @@ async function wStep4(body, main) {
     const host = $("#clist"); if (!host) return;
     const L = W.lookup;
     if (!W.codes.length || !L) { host.innerHTML = `<p class="small muted">Nessun codice scelto.</p>`; return; }
-    host.innerHTML = `<div class="bar"><p class="small"><b>${fmtN(W.codes.length)}</b> codici scelti · ${fmtN(L.rows.length)} trovati nella settimana${L.missing.length ? ` · <span class="miss">${fmtN(L.missing.length)} non trovati</span>` : ""}</p><button class="link" type="button" id="cclear">Svuota</button></div>
+    host.innerHTML = `<div class="bar"><p class="small"><b>${fmtN(W.codes.length)}</b> codici scelti · ${fmtN(L.rows.length)} trovati nei dati${L.missing.length ? ` · <span class="miss">${fmtN(L.missing.length)} non trovati</span>` : ""}</p><button class="link" type="button" id="cclear">Svuota</button></div>
       <div class="tablebox flagbox"><table><thead><tr><th>Codice</th><th>Descrizione</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Consumo/mese</th><th></th></tr></thead><tbody>
       ${L.rows.slice(0, 300).map(r => `<tr><td class="code">${esc(r.code)}</td><td class="desc">${esc(r.descr)}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${r.ondemand ? ` <span class="pill off">su richiesta</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.cons_mese ? fmtN(r.cons_mese, 2) : "–"}</td><td><button class="link" type="button" data-rmc="${esc(r.code)}">Togli</button></td></tr>`).join("")}
-      ${L.missing.slice(0, 100).map(c => `<tr><td class="code">${esc(c)}</td><td colspan="7" class="miss small">Non presente nei dati di questa settimana</td><td><button class="link" type="button" data-rmc="${esc(c)}">Togli</button></td></tr>`).join("")}
+      ${L.missing.slice(0, 100).map(c => `<tr><td class="code">${esc(c)}</td><td colspan="7" class="miss small">Non presente nei dati caricati</td><td><button class="link" type="button" data-rmc="${esc(c)}">Togli</button></td></tr>`).join("")}
       </tbody></table></div>${L.rows.length > 300 ? `<p class="small muted">A video i primi 300 codici trovati.</p>` : ""}`;
     $("#cclear").onclick = async () => { W.codes = []; W.listName = ""; await wLookup(); renderList(); };
     $$("[data-rmc]", host).forEach(b => b.onclick = () => { const c = b.dataset.rmc; W.codes = W.codes.filter(x => x !== c); L.rows = L.rows.filter(r => r.code !== c); L.missing = L.missing.filter(x => x !== c); renderList(); });
@@ -459,7 +448,7 @@ async function wStep4(body, main) {
   renderBox();
   $("#wback").onclick = () => wGo(main, 2);
   $("#wnext").onclick = () => {
-    if (W.codesMode !== "all" && !(W.lookup && W.lookup.rows.length)) { toast("Indica almeno un codice presente nei dati della settimana, oppure scegli «Tutti i codici»."); return; }
+    if (W.codesMode !== "all" && !(W.lookup && W.lookup.rows.length)) { toast("Indica almeno un codice presente nei dati caricati, oppure scegli «Tutti i codici»."); return; }
     rules().minDemand = parseNum($("#pmd").value); saveRules(); W.listOverride = $("#pov").checked;
     W.result = null; wGo(main, 5);
   };
@@ -499,11 +488,11 @@ function trend(cur, prev, upIsBad = true) {
   return `<span class="trend ${cls}">${d > 0 ? "▲ +" : "▼ −"}${fmtEk(Math.abs(d))}</span>`;
 }
 async function viewRete(main) {
-  main.innerHTML = `<div class="head"><div><h1>La tua rete</h1><p class="sub">Ultima settimana caricata da ogni concessionaria, con la variazione rispetto alla precedente.</p></div></div><div class="panel"><p class="muted">Caricamento…</p></div>`;
+  main.innerHTML = `<div class="head"><div><h1>La tua rete</h1><p class="sub">Ultimo caricamento di ogni concessionaria, con la variazione rispetto al precedente.</p></div></div><div class="panel"><p class="muted">Caricamento…</p></div>`;
   const rows = await api("GET", "/api/overview");
   const loaded = rows.filter(r => r.snap_id);
   const tot = k => loaded.reduce((t, r) => t + (r[k] || 0), 0);
-  main.innerHTML = `<div class="head"><div><h1>La tua rete</h1><p class="sub">Ultima settimana caricata da ogni concessionaria, con la variazione rispetto alla precedente.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>La tua rete</h1><p class="sub">Ultimo caricamento di ogni concessionaria, con la variazione rispetto al precedente.</p></div></div>
   <section class="tiles">
     <div class="tile neutral"><span class="k">Concessionarie con dati</span><span class="v">${fmtN(loaded.length)}<span class="small muted"> / ${fmtN(rows.length)}</span></span><span class="s">Valore a magazzino ${fmtE(tot("val_tot"))}</span></div>
     <div class="tile bad"><span class="k">Da riordinare</span><span class="v">${fmtEk(tot("val_sotto"))}</span><span class="s">${fmtN(tot("n_sotto"))} codici sotto scorta</span></div>
@@ -511,9 +500,9 @@ async function viewRete(main) {
     <div class="tile idle"><span class="k">Fermo senza fabbisogno</span><span class="v">${fmtEk(tot("val_fermo"))}</span><span class="s">${fmtN(tot("n_fermo"))} codici</span></div>
   </section>
   <section class="panel"><h2>Concessionarie</h2>
-  ${rows.length ? `<div class="tablebox"><table><thead><tr><th>Concessionaria</th><th>Ultima settimana</th><th class="num">Settimane</th><th class="num">Valore magazzino</th><th class="num">Da riordinare</th><th class="num">Eccedenze</th><th></th><th class="num">Fermo</th><th></th></tr></thead><tbody>
+  ${rows.length ? `<div class="tablebox"><table><thead><tr><th>Concessionaria</th><th>Ultimo caricamento</th><th class="num">Caricamenti</th><th class="num">Valore magazzino</th><th class="num">Da riordinare</th><th class="num">Eccedenze</th><th></th><th class="num">Fermo</th><th></th></tr></thead><tbody>
   ${rows.map(r => `<tr class="click" data-d="${r.id}"><td><b>${esc(r.name)}</b>${r.code ? ` <span class="muted mono small">${esc(r.code)}</span>` : ""}</td>
-    <td>${r.week_date ? esc(weekLabel(r.week_date)) : `<span class="pill off">Nessun caricamento</span>`}</td><td class="num">${fmtN(r.n_weeks)}</td>
+    <td>${r.week_date ? esc(snapLabel(r.week_date, r.uploaded_at)) : `<span class="pill off">Nessun caricamento</span>`}</td><td class="num">${fmtN(r.n_weeks)}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_tot) : "–"}</td><td class="num">${r.snap_id ? fmtE(r.val_sotto) : "–"}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_eccesso) : "–"}</td><td>${r.snap_id ? trend(r.val_eccesso, r.p_val_eccesso) : ""}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_fermo) : "–"}</td><td>${r.snap_id ? trend(r.val_fermo, r.p_val_fermo) : ""}</td></tr>`).join("")}
@@ -537,7 +526,7 @@ function lineChart(host, pts, opt) {
   const last = pts[pts.length - 1];
   const surf = getComputedStyle(document.documentElement).getPropertyValue("--surface").trim() || "#fff";
   host.innerHTML = `<div class="ct"><h3>${esc(opt.title)}</h3><span class="last">${opt.fmt(last.y)}</span></div>
-  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.title)}, ${pts.length} settimane">
+  <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.title)}, ${pts.length} caricamenti">
     ${ticks.map(v => `<line class="grid" x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}"/><text x="${L - 8}" y="${Y(v) + 4}" text-anchor="end">${opt.axis(v)}</text>`).join("")}
     ${pts.map((p, i) => (i % every === 0 || i === pts.length - 1) ? `<text x="${X(i)}" y="${H - 6}" text-anchor="middle">${esc(p.label)}</text>` : "").join("")}
     <path d="${area}" fill="${opt.color}" fill-opacity="0.12"/>
@@ -571,14 +560,14 @@ async function viewAndamento(main) {
   const snaps = await loadSnapshots();
   const name = dealerName(state.dealerId);
   if (!snaps.length) {
-    main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Nessuna settimana caricata.</p></div></div>
-      <div class="panel"><p>Carica la prima settimana per vedere l'andamento: storico movimentazione e giacenza attuale.</p><div><a class="btn primary" href="#carica">Carica settimana</a></div></div>`;
+    main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Nessun caricamento.</p></div></div>
+      <div class="panel"><p>Carica liste movimentazione e giacenze per vedere l'andamento.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`;
     return;
   }
   const L = snaps[snaps.length - 1], P = snaps.length > 1 ? snaps[snaps.length - 2] : null;
   const pv = k => P ? P[k] : null;
-  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">${esc(weekLabel(L.week_date))} · ${fmtN(snaps.length)} settimane in archivio</p></div>
-    <div class="row"><a class="btn" href="#analisi">Analizza i codici</a><a class="btn primary" href="#carica">Carica settimana</a></div></div>
+  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio</p></div>
+    <div class="row"><a class="btn" href="#analisi">Analizza i codici</a><a class="btn primary" href="#carica">Carica dati</a></div></div>
   <section class="tiles">
     <div class="tile"><span class="k">Valore a magazzino</span><span class="v">${fmtE(L.val_tot)}</span><span class="s">${fmtN(L.n_codes)} codici · ${trend(L.val_tot, pv("val_tot"))}</span></div>
     <div class="tile bad"><span class="k">Sotto scorta</span><span class="v">${fmtN(L.n_sotto)}</span><span class="s">${fmtN(L.pz_sotto)} pezzi · ${fmtE(L.val_sotto)} ${trend(L.val_sotto, pv("val_sotto"))}</span></div>
@@ -589,12 +578,12 @@ async function viewAndamento(main) {
   <section class="charts">
     <div class="chart" id="c1"></div><div class="chart" id="c2"></div><div class="chart" id="c3"></div><div class="chart" id="c4"></div>
   </section>
-  <section class="panel"><h2>Settimane caricate</h2><div class="tablebox"><table><thead><tr><th>Settimana</th><th>Caricata da</th><th class="num">Codici</th><th class="num">Valore magazzino</th><th class="num">Sotto scorta</th><th class="num">Eccedenze</th><th class="num">Fermo</th><th></th></tr></thead><tbody>
-  ${snaps.slice().reverse().map(s => `<tr><td>${esc(weekLabel(s.week_date))}</td><td class="small">${esc(s.uploaded_by_name || s.uploaded_by_user || "–")}<br><span class="muted">${esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td>
+  <section class="panel"><h2>Caricamenti</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Caricati da</th><th class="num">Codici</th><th class="num">Valore magazzino</th><th class="num">Sotto scorta</th><th class="num">Eccedenze</th><th class="num">Fermo</th><th></th></tr></thead><tbody>
+  ${snaps.slice().reverse().map(s => `<tr><td>${esc(snapLabel(s.week_date, s.uploaded_at))}</td><td class="small">${esc(s.uploaded_by_name || s.uploaded_by_user || "–")}<br><span class="muted">${esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td>
     <td class="num">${fmtN(s.n_codes)}</td><td class="num">${fmtE(s.val_tot)}</td><td class="num">${fmtN(s.n_sotto)} · ${fmtE(s.val_sotto)}</td><td class="num">${fmtE(s.val_eccesso)}</td><td class="num">${fmtE(s.val_fermo)}</td>
-    <td><div class="row"><button class="btn sm" type="button" data-open="${s.id}">Apri</button>${isAdmin() ? `<button class="btn sm danger" type="button" data-del="${s.id}" data-w="${s.week_date}">Elimina</button>` : ""}</div></td></tr>`).join("")}
+    <td><div class="row"><button class="btn sm" type="button" data-open="${s.id}">Apri</button>${isAdmin() ? `<button class="btn sm danger" type="button" data-del="${s.id}" data-w="${esc(snapLabel(s.week_date, s.uploaded_at))}">Elimina</button>` : ""}</div></td></tr>`).join("")}
   </tbody></table></div></section>`;
-  const pts = k => snaps.map(s => ({ y: s[k] || 0, label: dShort(s.week_date), full: weekLabel(s.week_date) }));
+  const pts = k => snaps.map(s => ({ y: s[k] || 0, label: dShort(s.week_date), full: snapLabel(s.week_date, s.uploaded_at) }));
   const cs = getComputedStyle(document.documentElement);
   const col = v => cs.getPropertyValue(v).trim();
   lineChart($("#c1"), pts("val_tot"), { title: "Valore a magazzino", color: col("--accent"), fmt: fmtE, axis: axisE });
@@ -603,8 +592,8 @@ async function viewAndamento(main) {
   lineChart($("#c4"), pts("val_fermo"), { title: "Valore fermo senza fabbisogno", color: col("--idle"), fmt: fmtE, axis: axisE });
   $$("[data-open]", main).forEach(b => b.onclick = () => { state.analisi = { ...state.analisi, snapId: +b.dataset.open, offset: 0, f: "tutti" }; location.hash = "#analisi"; });
   $$("[data-del]", main).forEach(b => b.onclick = async () => {
-    if (!await confirmBox("Eliminare la settimana?", `Verranno cancellati tutti i dati della ${esc(weekLabel(b.dataset.w))} per ${esc(name)}. L'operazione non si può annullare.`, "Elimina", true)) return;
-    try { await api("DELETE", "/api/snapshots/" + b.dataset.del); toast("Settimana eliminata."); if (state.analisi.snapId === +b.dataset.del) state.analisi.snapId = null; route(); } catch (e) { if (!e.silent) toast(e.message); }
+    if (!await confirmBox("Eliminare il caricamento?", `Verranno cancellati tutti i dati del caricamento del ${esc(b.dataset.w)} per ${esc(name)}. L'operazione non si può annullare.`, "Elimina", true)) return;
+    try { await api("DELETE", "/api/snapshots/" + b.dataset.del); toast("Caricamento eliminato."); if (state.analisi.snapId === +b.dataset.del) state.analisi.snapId = null; route(); } catch (e) { if (!e.silent) toast(e.message); }
   });
 }
 
@@ -613,22 +602,22 @@ const FILTRI = [
   ["tutti", "Tutti"], ["sotto", "Sotto scorta"], ["eccesso", "Eccesso"], ["fermo", "Fermo"],
   ["nogiac", "Non in giacenza"], ["nostorico", "Senza storico"], ["ok", "In linea"]
 ];
-const FILTRI2 = [["nuovi", "Nuovi problemi questa settimana"], ["cronici", "Eccesso o fermo da 4+ settimane"]];
+const FILTRI2 = [["nuovi", "Nuovi problemi rispetto al caricamento precedente"], ["cronici", "Eccesso o fermo da 4+ caricamenti"]];
 const FILTRI3 = [["ondemand", "Su richiesta"]];
 const ACOLS = [
   ["status", "Stato"], ["code", "Codice"], ["descr", "Descrizione"], ["loc", "Locaz."], ["giac", "Giacenza", 1], ["var", "Var. sett.", 1],
   ["ord", "Ord. aperti", 1], ["smin", "SMin", 1], ["smax", "SMax", 1], ["delta", "Da ordinare / Eccedenza", 1],
-  ["streak", "Settimane nello stato", 1], ["cost", "Costo unit.", 1], ["val_giac", "Valore giacenza", 1], ["val_action", "Valore azione", 1]
+  ["streak", "Caricamenti nello stato", 1], ["cost", "Costo unit.", 1], ["val_giac", "Valore giacenza", 1], ["val_action", "Valore azione", 1]
 ];
 async function viewAnalisi(main) {
   if (needDealer(main)) return;
   main.innerHTML = `<div class="panel"><p class="muted">Caricamento…</p></div>`;
   const snaps = state.snapshots.length ? state.snapshots : await loadSnapshots();
-  if (!snaps.length) { main.innerHTML = `<div class="panel"><h2>Nessuna settimana caricata</h2><p class="muted">Carica storico e giacenza per iniziare.</p><div><a class="btn primary" href="#carica">Carica settimana</a></div></div>`; return; }
+  if (!snaps.length) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica liste movimentazione e giacenze per iniziare.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`; return; }
   const A = state.analisi;
   if (!snaps.some(s => s.id === A.snapId)) { A.snapId = snaps[snaps.length - 1].id; A.offset = 0; }
   main.innerHTML = `<div class="head"><div><h1>Analisi codici</h1><p class="sub">${esc(dealerName(state.dealerId))}</p></div>
-    <label class="field" for="wsel">Settimana<select id="wsel">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === A.snapId ? " selected" : ""}>${esc(weekLabel(s.week_date))}</option>`).join("")}</select></label></div>
+    <label class="field" for="wsel">Dati del<select id="wsel">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === A.snapId ? " selected" : ""}>${esc(snapLabel(s.week_date, s.uploaded_at))}</option>`).join("")}</select></label></div>
   <section class="panel">
     <div class="bar"><div class="chips" id="chips" role="group" aria-label="Filtra per stato"></div>
       <div class="row"><input type="search" id="q" placeholder="Cerca codice o descrizione" aria-label="Cerca codice o descrizione" value="${esc(A.q)}"><button class="btn" type="button" id="xls">Scarica Excel</button></div></div>
@@ -639,7 +628,7 @@ async function viewAnalisi(main) {
   <section class="panel rules"><h3>Come viene classificato ogni codice</h3><ul>
     <li><b>Disponibile</b> = giacenza + ordini aperti. <b>Sotto scorta</b>: disponibile sotto SMin; quantità suggerita = SMax − disponibile.</li>
     <li><b>Eccesso</b>: giacenza sopra SMax; eccedenza = giacenza − SMax, valorizzata al costo. <b>Fermo</b>: giacenza con SMin e SMax a zero.</li>
-    <li><b>Settimane nello stato</b>: per quante settimane consecutive il codice è rimasto nello stesso stato. <b>Var. sett.</b>: variazione della giacenza rispetto alla settimana caricata prima.</li>
+    <li><b>Caricamenti nello stato</b>: in quanti caricamenti consecutivi il codice è rimasto nello stesso stato. <b>Var. giacenza</b>: variazione della giacenza rispetto al caricamento precedente.</li>
     <li><b>Non in giacenza</b>: codice dello storico assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nello storico.</li></ul></section>`;
   $("#wsel").onchange = e => { A.snapId = +e.target.value; A.offset = 0; loadItems(); };
   let qt; $("#q").oninput = e => { clearTimeout(qt); qt = setTimeout(() => { A.q = e.target.value; A.offset = 0; loadItems(); }, 300); };
@@ -655,7 +644,7 @@ async function loadItems() {
   const c = data.counts;
   $("#chips").innerHTML = FILTRI.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("");
   const od = FILTRI3.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("");
-  $("#chips2").innerHTML = od + (data.prev_week ? FILTRI2.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("") + `<span class="small muted">Confronto con la ${esc(weekLabel(data.prev_week))}</span>` : `<span class="small muted">Prima settimana in archivio: i confronti compariranno dalla prossima.</span>`);
+  $("#chips2").innerHTML = od + (data.prev_week ? FILTRI2.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("") + `<span class="small muted">Confronto con il caricamento del ${esc(snapLabel(data.prev_week, data.prev_at))}</span>` : `<span class="small muted">Primo caricamento in archivio: i confronti compariranno dal prossimo.</span>`);
   $$("#chips .chip, #chips2 .chip").forEach(b => b.onclick = () => { A.f = b.dataset.f; A.offset = 0; loadItems(); });
   const t = $("#tbl");
   t.tHead.innerHTML = "<tr>" + ACOLS.map(([k, l, n]) => `<th class="${n ? "num" : ""}" scope="col"><button type="button" data-k="${k}"${A.sort === k ? ` data-dir="${A.dir}"` : ""}>${l}</button></th>`).join("") + "</tr>";
@@ -685,7 +674,7 @@ async function exportXls() {
     const rows = data.rows.map(r => ({
       "Stato": STATI[r.status], "Codice": r.code, "Descrizione": r.descr, "Locazione": r.loc, "DG": r.dg, "Giacenza": r.giac,
       "Giacenza sett. prec.": r.prev_giac, "Ordini aperti": r.ord, "SMin": r.smin, "SMax": r.smax, "Da ordinare (+) / Eccedenza (-)": r.delta,
-      "Settimane nello stato": r.streak, "Costo unitario": r.cost, "Valore giacenza": Math.round(r.val_giac * 100) / 100, "Valore azione": Math.round(r.val_action * 100) / 100,
+      "Caricamenti nello stato": r.streak, "Costo unitario": r.cost, "Valore giacenza": Math.round(r.val_giac * 100) / 100, "Valore azione": Math.round(r.val_action * 100) / 100,
       "Presente in giacenza": r.in_b ? "Sì" : "No"
     }));
     if (!rows.length) { toast("Nessuna riga da esportare."); return; }
@@ -698,11 +687,11 @@ async function exportXls() {
   finally { b.disabled = false; b.textContent = "Scarica Excel"; }
 }
 
-/* ============ Selettore settimana condiviso ============ */
+/* ============ Selettore del caricamento condiviso ============ */
 function weekSelect(id, snaps, cur) {
-  return `<label class="field" for="${id}">Settimana<select id="${id}">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === cur ? " selected" : ""}>${esc(weekLabel(s.week_date))}</option>`).join("")}</select></label>`;
+  return `<label class="field" for="${id}">Dati del<select id="${id}">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === cur ? " selected" : ""}>${esc(snapLabel(s.week_date, s.uploaded_at))}</option>`).join("")}</select></label>`;
 }
-function noWeeks(main) { main.innerHTML = `<div class="panel"><h2>Nessuna settimana caricata</h2><p class="muted">Carica storico e giacenza per iniziare.</p><div><a class="btn primary" href="#carica">Carica settimana</a></div></div>`; }
+function noWeeks(main) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica liste movimentazione e giacenze per iniziare.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`; }
 
 /* ============ Scenari d'ordine ============ */
 const GROUPS = { "0": "Accessori e vernici", "1": "Motore", "2": "Alimentazione e scarico", "3": "Cambio", "4": "Assale anteriore e sterzo",
@@ -867,7 +856,7 @@ function renderHistory(sel = "#ohist", resSel = "#ores", recalc) {
   host.innerHTML = `<section class="panel"><h2>Confronto scenari</h2><div class="tablebox"><table><thead><tr><th>Scenario</th><th class="num">Valore</th><th class="num">Righe</th><th class="num">Pezzi</th><th class="num">Codici a zero coperti</th><th class="num">Sotto scorta coperti</th><th></th></tr></thead><tbody>
     ${H.map((h, k) => `<tr${h.r === state.ordine.result ? ' class="cur"' : ""}><td class="desc">${esc(h.title)}</td><td class="num">${fmtE(h.s.spent)}</td><td class="num">${fmtN(h.s.n_lines)}</td><td class="num">${fmtN(h.s.pieces)}</td>
       <td class="num">${fmtN(h.s.zero_cov)} / ${fmtN(h.s.zero_tot)}</td><td class="num">${fmtN(h.s.sotto_cov)} / ${fmtN(h.s.sotto_tot)}</td><td><button class="btn sm" type="button" data-h="${k}">Apri</button></td></tr>`).join("")}
-  </tbody></table></div><p class="small muted">Gli scenari restano qui finché non cambi settimana o ricarichi la pagina.</p></section>`;
+  </tbody></table></div><p class="small muted">Gli scenari restano qui finché non cambi i dati o ricarichi la pagina.</p></section>`;
   $$("[data-h]", host).forEach(b => b.onclick = () => { state.ordine.result = H[+b.dataset.h].r; renderProposal(resSel, recalc); renderHistory(sel, resSel, recalc); $(resSel).scrollIntoView({ behavior: "smooth", block: "start" }); });
 }
 function renderProposal(sel = "#ores", recalc) {
@@ -886,7 +875,7 @@ function renderProposal(sel = "#ores", recalc) {
       ? `Con il limite di ${oltreTxt(S.extra.limit)} per codice restano <b>${fmtE(S.left)}</b> non spesi: alza o togli il limite nelle regole, oppure allarga i codici.`
       : `Nessun codice con vendite regolari può ricevere il resto: restano <b>${fmtE(S.left)}</b> non spesi. Allarga i codici o i filtri.`}</div>`);
     if (!S.prop.full && S.need > S.spent + 0.01) notes.push(`<div class="msg">Portare tutti i codici alla SMax costerebbe <b>${fmtE(S.need)}</b>: l'importo ne copre il ${pct(S.spent, S.need)}.</div>`);
-    if (S.no_reg) notes.push(`<div class="msg">Nei dati di questa settimana manca l'indice di regolarità delle vendite: la proporzione usa solo il consumo medio mensile.</div>`);
+    if (S.no_reg) notes.push(`<div class="msg">Nei dati caricati manca l'indice di regolarità delle vendite: la proporzione usa solo il consumo medio mensile.</div>`);
   }
   host.innerHTML = `<div class="scen-title"><h2>${esc(R.title)}</h2></div>
   <div id="rbox"></div>
@@ -896,7 +885,7 @@ function renderProposal(sel = "#ores", recalc) {
     <div class="tile bad"><span class="k">Codici a zero coperti</span><span class="v">${fmtN(S.zero_cov)}<span class="small muted"> / ${fmtN(S.zero_tot)}</span></span><span class="s">${pct(S.zero_cov, S.zero_tot)} riportati almeno a SMin</span></div>
     <div class="tile warn"><span class="k">Sotto scorta coperti</span><span class="v">${fmtN(S.sotto_cov)}<span class="small muted"> / ${fmtN(S.sotto_tot)}</span></span><span class="s">${pct(S.sotto_cov, S.sotto_tot)} riportati almeno a SMin</span></div>
   </section>
-  ${S.list ? `<div class="msg">Elenco di ${fmtN(S.list.n)} codici: ${fmtN(S.list.found)} trovati nella settimana, ${fmtN(S.list.n_missing)} non trovati${S.list.no_need ? `, ${fmtN(S.list.no_need)} già coperti, esclusi o senza fabbisogno` : ""}.${S.list.n_missing ? `<br><span class="small">Non trovati: <span class="mono">${S.list.missing.map(esc).join(", ")}${S.list.n_missing > S.list.missing.length ? "…" : ""}</span></span>` : ""}</div>` : ""}
+  ${S.list ? `<div class="msg">Elenco di ${fmtN(S.list.n)} codici: ${fmtN(S.list.found)} trovati nei dati, ${fmtN(S.list.n_missing)} non trovati${S.list.no_need ? `, ${fmtN(S.list.no_need)} già coperti, esclusi o senza fabbisogno` : ""}.${S.list.n_missing ? `<br><span class="small">Non trovati: <span class="mono">${S.list.missing.map(esc).join(", ")}${S.list.n_missing > S.list.missing.length ? "…" : ""}</span></span>` : ""}</div>` : ""}
   ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low + (S.excluded.minline || 0)) ? `<div class="msg">Esclusi: ${[S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con consumo ma non tenuti a scorta (SMin e SMax a zero)` : "", S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati su richiesta` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : "", S.excluded.minline ? `${fmtN(S.excluded.minline)} righe sotto il valore minimo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
   ${notes.join("\n  ")}
   ${S.by_group.length > 1 ? `<section class="panel"><h3>Valore dell'ordine per gruppo principale</h3><div id="obg"></div></section>` : ""}
@@ -908,7 +897,7 @@ function renderProposal(sel = "#ores", recalc) {
 
 /* ============ Tabella di conferma: Sì / No per riga ============ */
 const covTxt = v => v == null ? "–" : fmtN(v, 1);
-function decKey(R) { return `ig_dec_${state.dealerId}_${R.week}_${R.title}`; }
+function decKey(R) { return `ig_dec_${state.dealerId}_${R.week}_${R.at || ""}_${R.title}`; }
 function lineAlerts(l, th) {
   const a = [];
   if (!(l.cons_mese > 0)) a.push("Nessuna domanda registrata: copertura non calcolabile");
@@ -922,7 +911,7 @@ function moveCells(l) {
         <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.cons_eff != null && l.cons_mese && Math.abs(l.cons_eff - l.cons_mese) > 1e-9 ? `<span class="sub">considerato ${fmtN(l.cons_eff, 2)}</span>` : ""}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 1)}</span>` : ""}</td>
         <td class="num">${v == null ? "–" : v === 0 ? "=" : (v > 0 ? "+" : "") + fmtN(v)}${l.prev_giac != null ? `<span class="sub">prima ${fmtN(l.prev_giac)}</span>` : ""}</td>`;
 }
-const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 11,99">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto alla settimana caricata prima">Var. giacenza</th>`;
+const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 11,99">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto al caricamento precedente">Var. giacenza</th>`;
 /* Blocca le prime due colonne a sinistra e quelle da «Proposta» in poi a destra.
    Se lo schermo è troppo stretto per entrambi i blocchi, a destra resta bloccata solo l'ultima colonna. */
 let freezeActive = null;
@@ -1025,7 +1014,7 @@ function confirmedRows(rows) {
   const th = rules().alertMonths;
   return rows.filter(r => r.d === "si").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "DG": l.dg || "",
     "Giacenza attuale": l.giac, "Ordini aperti": l.ord, "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "",
-    "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-12)": l.regolarita || "", "Giacenza settimana precedente": l.prev_giac != null ? l.prev_giac : "",
+    "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-12)": l.regolarita || "", "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost,
     "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità": l.qty,
     "Valore netto": Math.round(l.value * 100) / 100, "Valore listino": l.listino != null ? Math.round(l.listino * l.qty * 100) / 100 : "",
@@ -1033,7 +1022,7 @@ function confirmedRows(rows) {
 }
 function orderMeta(R, rows) {
   const u = state.me.user, accepted = rows ? rows.filter(r => r.d === "si").map(r => r.l) : R.lines.filter(l => R.dec[l.code] === "si");
-  return { dealer: dealerName(state.dealerId), week: weekLabel(R.week), scen: R.title, user: u.full_name || u.username, date: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }),
+  return { dealer: dealerName(state.dealerId), week: snapLabel(R.week, R.at), scen: R.title, user: u.full_name || u.username, date: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }),
     n: accepted.length, q: accepted.reduce((t, l) => t + l.qty, 0), v: accepted.reduce((t, l) => t + l.value, 0), vl: accepted.reduce((t, l) => t + (l.listino || 0) * l.qty, 0),
     rejected: R.lines.length - accepted.length };
 }
@@ -1043,7 +1032,7 @@ function exportConfirmedXls(R, rows) {
   XLSX.utils.book_append_sheet(wb, ws, "Ordine confermato");
   const rej = rows.filter(r => r.d === "no").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Quantità proposta": l.qty, "Valore netto": Math.round(l.value * 100) / 100, "Avviso": al.join(" · ") }));
   if (rej.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rej), "Righe non accettate");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati della", M.week], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati del", M.week], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
     ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
   XLSX.writeFile(wb, `ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.xlsx`);
 }
@@ -1054,7 +1043,7 @@ function exportConfirmedPdf(R, rows) {
   const th = rules().alertMonths, W = doc.internal.pageSize.getWidth();
   doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.text(title, 14, 16);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(80);
-  doc.text([`Concessionaria: ${M.dealer}`, `Dati della ${M.week}`, `${M.scen}`, `Confermato da ${M.user} il ${M.date}`], 14, 23);
+  doc.text([`Concessionaria: ${M.dealer}`, `Dati del ${M.week}`, `${M.scen}`, `Confermato da ${M.user} il ${M.date}`], 14, 23);
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
@@ -1076,7 +1065,7 @@ function exportConfirmedPdf(R, rows) {
 function exportProposalXls(R) {
   const S = R.summary;
   const rows = R.lines.map(l => ({ "Priorità": l.rank, "Codice": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "Classe ABC": l.cls === "N" ? "" : l.cls, "DG": l.dg, "Locazione": l.loc,
-    "Stato": l.tier === 1 ? "A zero" : STATI[l.status], "Giacenza": l.giac, "Ordini aperti": l.ord, "Giacenza settimana precedente": l.prev_giac != null ? l.prev_giac : "",
+    "Stato": l.tier === 1 ? "A zero" : STATI[l.status], "Giacenza": l.giac, "Ordini aperti": l.ord, "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
     "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "", "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "",
     "SMin": l.smin, "SMax": l.smax, "Consumo medio mensile": l.cons_mese, "Regolarità vendite (0-12)": l.regolarita, "Vendita regolare (pz/mese)": Math.round((l.vr || 0) * 100) / 100,
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost, "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità proposta": l.qty,
@@ -1085,7 +1074,7 @@ function exportProposalXls(R) {
   const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(k => ({ wch: Math.max(10, k.length + 2) }));
   XLSX.utils.book_append_sheet(wb, ws, "Proposta");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Settimana", weekLabel(R.week)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Dati del", snapLabel(R.week, R.at)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
   XLSX.writeFile(wb, `proposta_${dealerName(state.dealerId).replace(/[^\w\-]+/g, "_")}_${R.week}_${S.mode}.xlsx`);
 }
 
@@ -1141,7 +1130,7 @@ async function viewKpi(main) {
   const [K, T] = await Promise.all([api("GET", `/api/snapshots/${state.kpiSnap}/kpi`), api("GET", `/api/dealers/${state.dealerId}/kpitrend`)]);
   const pc = v => v == null ? "–" : fmtN(v * 100, 1) + "%";
   const st = s => K.by_status.find(x => x.status === s);
-  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · ${esc(weekLabel(K.week))}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
+  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
   <section class="tiles">
     <div class="tile"><span class="k">Livello di servizio stimato</span><span class="v">${pc(K.service)}</span><span class="s">codici con SMin disponibili a scaffale · ${fmtN(K.n_zero)} a zero su ${fmtN(K.n_dem)}</span></div>
     <div class="tile neutral"><span class="k">Copertura media</span><span class="v">${K.coverage_months == null ? "–" : fmtN(K.coverage_months, 1) + " mesi"}</span><span class="s">valore a magazzino ÷ consumo mensile (${fmtE(K.cons_year / 12)})</span></div>
@@ -1174,8 +1163,8 @@ async function viewKpi(main) {
   $("#kw").onchange = e => { state.kpiSnap = +e.target.value; viewKpi(main); };
   const cs = getComputedStyle(document.documentElement), col = v => cs.getPropertyValue(v).trim();
   if (T.length > 1) {
-    lineChart($("#t1"), T.map(t => ({ y: (t.service || 0) * 100, label: dShort(t.week_date), full: weekLabel(t.week_date) })), { title: "Livello di servizio stimato", color: col("--good"), fmt: v => fmtN(v, 1) + "%", axis: v => fmtN(v) + "%" });
-    lineChart($("#t2"), T.map(t => ({ y: t.coverage_months || 0, label: dShort(t.week_date), full: weekLabel(t.week_date) })), { title: "Copertura media in mesi", color: col("--accent"), fmt: v => fmtN(v, 1) + " mesi", axis: v => fmtN(v, 1) });
+    lineChart($("#t1"), T.map(t => ({ y: (t.service || 0) * 100, label: dShort(t.week_date), full: snapLabel(t.week_date, t.uploaded_at) })), { title: "Livello di servizio stimato", color: col("--good"), fmt: v => fmtN(v, 1) + "%", axis: v => fmtN(v) + "%" });
+    lineChart($("#t2"), T.map(t => ({ y: t.coverage_months || 0, label: dShort(t.week_date), full: snapLabel(t.week_date, t.uploaded_at) })), { title: "Copertura media in mesi", color: col("--accent"), fmt: v => fmtN(v, 1) + " mesi", axis: v => fmtN(v, 1) });
   }
   bars($("#b1"), [
     { label: "In linea", value: st("ok").val, color: col("--good") },
@@ -1195,7 +1184,7 @@ async function viewKpi(main) {
 /* ============ Scheda codice ============ */
 async function viewCodice(main) {
   if (needDealer(main)) return;
-  main.innerHTML = `<div class="head"><div><h1>Scheda codice</h1><p class="sub">Evoluzione settimana per settimana di un codice in ${esc(dealerName(state.dealerId))}.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Scheda codice</h1><p class="sub">Evoluzione di un codice, caricamento dopo caricamento, in ${esc(dealerName(state.dealerId))}.</p></div></div>
   <form class="panel" id="cf"><div class="row"><label class="field" for="cq">Codice particolare<input type="text" id="cq" value="${esc(state.codice)}" autocapitalize="characters" placeholder="Es. 12385671"></label><button class="btn primary" type="submit">Mostra</button></div></form>
   <div id="cres"></div>`;
   $("#cf").onsubmit = e => { e.preventDefault(); state.codice = $("#cq").value.trim().toUpperCase(); showCode(); };
@@ -1205,7 +1194,7 @@ async function showCode() {
   const out = $("#cres"); out.innerHTML = `<p class="muted">Caricamento…</p>`;
   const d = await api("GET", `/api/history?dealer=${state.dealerId}&code=${encodeURIComponent(state.codice)}`);
   if (!d.rows.length) {
-    out.innerHTML = `<div class="panel"><p>Il codice <b class="mono">${esc(d.code)}</b> non compare nelle settimane caricate.</p>${d.suggest.length ? `<p class="small muted">Codici che iniziano così:</p><div class="chips">${d.suggest.map(s => `<button class="chip mono" type="button" data-s="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : ""}</div>`;
+    out.innerHTML = `<div class="panel"><p>Il codice <b class="mono">${esc(d.code)}</b> non compare nei dati caricati.</p>${d.suggest.length ? `<p class="small muted">Codici che iniziano così:</p><div class="chips">${d.suggest.map(s => `<button class="chip mono" type="button" data-s="${esc(s)}">${esc(s)}</button>`).join("")}</div>` : ""}</div>`;
     $$("[data-s]", out).forEach(b => b.onclick = () => { state.codice = b.dataset.s; $("#cq").value = state.codice; showCode(); });
     return;
   }
@@ -1215,13 +1204,13 @@ async function showCode() {
       : `<p class="muted">Codice gestito a scorta. Se è un ricambio che ordini solo su richiesta del cliente, escludilo dagli scenari d'ordine.</p><button class="btn sm" type="button" id="cflag">Segna come su richiesta</button>`}</div></div>
   <section class="tiles">
     <div class="tile"><span class="k">${esc(last.descr || "Codice")}</span><span class="v mono">${esc(d.code)}</span><span class="s">Locazione ${esc(last.loc || "–")} · costo ${fmtE2(last.cost)}</span></div>
-    <div class="tile ${last.status === "sotto" ? "bad" : last.status === "eccesso" ? "warn" : last.status === "fermo" ? "idle" : "neutral"}"><span class="k">Stato attuale</span><span class="v">${STATI[last.status]}</span><span class="s">${last.status === "ok" ? "" : `da ${fmtN(last.streak)} settimane · `}${esc(weekLabel(last.week_date))}</span></div>
+    <div class="tile ${last.status === "sotto" ? "bad" : last.status === "eccesso" ? "warn" : last.status === "fermo" ? "idle" : "neutral"}"><span class="k">Stato attuale</span><span class="v">${STATI[last.status]}</span><span class="s">${last.status === "ok" ? "" : `da ${fmtN(last.streak)} ${last.streak === 1 ? "caricamento" : "caricamenti"} · `}dati del ${esc(snapLabel(last.week_date, last.uploaded_at))}</span></div>
     <div class="tile neutral"><span class="k">Giacenza / SMin / SMax</span><span class="v">${fmtN(last.giac)} <span class="small muted">/ ${fmtN(last.smin)} / ${fmtN(last.smax)}</span></span><span class="s">${fmtN(last.ord)} in ordine</span></div>
   </section>
   <div class="chart" id="cc"></div>
-  <section class="panel"><h2>Settimana per settimana</h2><div class="tablebox"><table><thead><tr><th>Settimana</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Da ordinare / Eccedenza</th><th class="num">Valore giacenza</th></tr></thead><tbody>
-  ${d.rows.slice().reverse().map(r => `<tr><td>${esc(weekLabel(r.week_date))}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac">n.g.</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.delta > 0 ? "+" : ""}${r.delta ? fmtN(r.delta) : "–"}</td><td class="num">${fmtE2(r.val_giac)}</td></tr>`).join("")}
-  </tbody></table></div>${d.rows.length < d.weeks.length ? `<p class="small muted">Il codice compare in ${fmtN(d.rows.length)} settimane su ${fmtN(d.weeks.length)} caricate.</p>` : ""}</section>`;
+  <section class="panel"><h2>Caricamento per caricamento</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Da ordinare / Eccedenza</th><th class="num">Valore giacenza</th></tr></thead><tbody>
+  ${d.rows.slice().reverse().map(r => `<tr><td>${esc(snapLabel(r.week_date, r.uploaded_at))}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac">n.g.</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.delta > 0 ? "+" : ""}${r.delta ? fmtN(r.delta) : "–"}</td><td class="num">${fmtE2(r.val_giac)}</td></tr>`).join("")}
+  </tbody></table></div>${d.rows.length < d.weeks.length ? `<p class="small muted">Il codice compare in ${fmtN(d.rows.length)} caricamenti su ${fmtN(d.weeks.length)}.</p>` : ""}</section>`;
   $("#cflag").onclick = async () => {
     try {
       if (d.flag) await api("DELETE", `/api/dealers/${state.dealerId}/flags/${encodeURIComponent(d.code)}`);
@@ -1230,11 +1219,11 @@ async function showCode() {
     } catch (x) { if (!x.silent) toast(x.message); }
   };
   const cs = getComputedStyle(document.documentElement);
-  lineChart($("#cc"), d.rows.map(r => ({ y: r.giac, label: dShort(r.week_date), full: weekLabel(r.week_date) })),
-    { title: `Giacenza settimanale (SMin ${fmtN(last.smin)} · SMax ${fmtN(last.smax)} nell'ultima settimana)`, color: cs.getPropertyValue("--accent").trim(), fmt: v => fmtN(v) + " pz", axis: v => fmtN(v) });
+  lineChart($("#cc"), d.rows.map(r => ({ y: r.giac, label: dShort(r.week_date), full: snapLabel(r.week_date, r.uploaded_at) })),
+    { title: `Giacenza per caricamento (SMin ${fmtN(last.smin)} · SMax ${fmtN(last.smax)} nell'ultimo)`, color: cs.getPropertyValue("--accent").trim(), fmt: v => fmtN(v) + " pz", axis: v => fmtN(v) });
 }
 
-/* ============ Caricamento settimana ============ */
+/* ============ Caricamento dei dati ============ */
 const FIELDS_A = [
   { key: "code", label: "Codice", req: true, syn: ["codice particolare", "codice", "cod particolare", "part number", "partnumber", "articolo", "stampanr.rc", "stampanr"] },
   { key: "desc", label: "Descrizione", syn: ["descrizione", "desc"] },
@@ -1290,21 +1279,17 @@ function readFile(file) {
 async function viewCarica(main) {
   if (needDealer(main)) return;
   const U = state.upload;
-  main.innerHTML = `<div class="head"><div><h1>Carica settimana</h1><p class="sub">${esc(dealerName(state.dealerId))}. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione e le giacenze più recenti. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
   <div class="msg err" id="uerr" hidden></div>
-  <section class="grid3">
-    <div class="step" id="stepW"><span class="num">PASSO 1</span><h3>Settimana di riferimento</h3>
-      <label class="field" for="wk">Una data qualsiasi della settimana<input type="date" id="wk" value="${U.week}"></label><p class="meta" id="wkl"></p></div>
-    <div class="step" id="stepA"><span class="num">PASSO 2</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti.</p>
+  <section class="grid2">
+    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti.</p>
       <div id="listA"></div>
       <label class="btn" for="fileA">Aggiungi file storico</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-    <div class="step" id="stepB"><span class="num">PASSO 3</span><h3>Giacenza attuale</h3><p class="meta">Codice e quantità disponibile. Con più file, le quantità dello stesso codice si sommano.</p>
+    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Codice e quantità disponibile. Con più file, le quantità dello stesso codice si sommano.</p>
       <div id="listB"></div>
       <label class="btn" for="fileB">Aggiungi file giacenza</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
   </section>
-  <div class="row"><button class="btn primary" type="button" id="save" disabled>Incrocia e salva la settimana</button><span class="small muted" id="sstat"></span></div>`;
-  const wk = $("#wk"), upd = () => { const v = wk.value; if (v) { const [y, m, d] = v.split("-").map(Number); U.week = mondayISO(new Date(y, m - 1, d)); $("#wkl").textContent = weekLabel(U.week) + " (lunedì)"; $("#stepW").classList.add("done"); } };
-  wk.onchange = upd; upd();
+  <div class="row"><button class="btn primary" type="button" id="save" disabled>Incrocia e salva</button><span class="small muted" id="sstat"></span></div>`;
   ["A", "B"].forEach(slot => {
     const inp = $("#file" + slot), step = $("#step" + slot);
     inp.onchange = () => { handleFiles(slot, Array.from(inp.files)); inp.value = ""; };
@@ -1361,31 +1346,26 @@ function extract(slot) {
   }
   return out;
 }
-async function save(replace, onDone) {
+async function save(onDone) {
   const b = $("#save"), st = $("#sstat"), err = $("#uerr"), U = state.upload;
   b.disabled = true; st.textContent = "Incrocio e salvataggio in corso…"; err.hidden = true;
   try {
     const names = k => U[k].map(s => s.wb.name).join(", ");
-    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, week: U.week, file_a: names("A"), file_b: names("B"), rowsA: extract("A"), rowsB: extract("B"), replace });
+    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: names("B"), rowsA: extract("A"), rowsB: extract("B") });
     U.A = []; U.B = [];
-    toast(`Salvata la ${weekLabel(r.week)}: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}.`);
+    toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}.`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     if (onDone) return onDone(r);
     location.hash = "#analisi";
   } catch (e) {
     if (e.silent) return;
-    if (e.status === 409) {
-      st.textContent = "";
-      if (await confirmBox("Settimana già caricata", `Per la ${esc(weekLabel(U.week))} i dati ci sono già. Vuoi sostituirli con questi file?`, "Sostituisci")) return save(true, onDone);
-      b.disabled = false; return;
-    }
     err.hidden = false; err.textContent = e.message; st.textContent = ""; b.disabled = false;
   }
 }
 
 /* ============ Generatore di dati di prova ============
  * Crea liste movimentazione e giacenze fittizie con la stessa struttura dei file reali,
- * per una o più settimane che evolvono nel tempo. Tutto avviene nel browser: nulla viene salvato.
+ * per uno o più caricamenti successivi che evolvono nel tempo. Tutto avviene nel browser: nulla viene salvato.
  */
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 // Codici di prova: 8 cifre, la quarta è il gruppo principale (da 0 a 9).
@@ -1409,7 +1389,7 @@ function generateData(o) {
   // 8 cifre: tre casuali, il gruppo principale, quattro casuali
   const newCode = () => { for (;;) { const pt = pick(G_PARTS), c = String(ri(100, 999)) + pt[0] + String(ri(0, 9999)).padStart(4, "0"); if (!used.has(c)) { used.add(c); return [c, pt]; } } };
   const loc = () => R() < .08 ? null : R() < .15 ? `${pick("ABHJKM".split(""))}${ri(1, 9)}${pick("ABCDEFG".split(""))}${ri(1, 9)}` : `${pick("ABHJKM".split(""))}${String(ri(1, 30)).padStart(2, "0")}${pick("ABCDEF".split(""))}${ri(1, 6)}`;
-  // profilo: quota di codici sotto SMin e sopra SMax nella prima settimana
+  // profilo: quota di codici sotto SMin e sopra SMax nel primo caricamento
   const prof = { equilibrato: [.25, .12, .2], alto: [.08, .35, .35], scarico: [.45, .04, .08] }[o.profile] || [.25, .12, .2];
   const A = [];
   for (let k = 0; k < o.nA; k++) {
@@ -1455,15 +1435,14 @@ function generateData(o) {
   return weeks;
 }
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, weeks: 4, profile: "equilibrato", start: (() => { const d = new Date(); d.setDate(d.getDate() - 7 * 3); return mondayISO(d); })(), seed: Math.floor(Math.random() * 1e6) });
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, weeks: 1, profile: "equilibrato", seed: Math.floor(Math.random() * 1e6) });
   main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid3">
       <label class="field" for="gna">Codici nelle liste movimentazione<input type="text" id="gna" inputmode="numeric" value="${esc(fmtN(P.nA))}"></label>
       <label class="field" for="gnb">Codici nelle giacenze<input type="text" id="gnb" inputmode="numeric" value="${esc(fmtN(P.nB))}"></label>
       <label class="field" for="gpr">Situazione del magazzino<select id="gpr">${[["equilibrato", "Equilibrata"], ["alto", "Magazzino alto (molti eccessi)"], ["scarico", "Magazzino scarico (molti sotto scorta)"]].map(([v, l]) => `<option value="${v}"${v === P.profile ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label class="field" for="gw">Settimane<select id="gw">${[1, 2, 4, 6, 8].map(v => `<option value="${v}"${v === P.weeks ? " selected" : ""}>${v} ${v === 1 ? "settimana" : "settimane"}</option>`).join("")}</select></label>
-      <label class="field" for="gs">Prima settimana (lunedì)<input type="date" id="gs" value="${P.start}"></label>
+      <label class="field" for="gw">Caricamenti<select id="gw">${[1, 2, 4, 6, 8].map(v => `<option value="${v}"${v === P.weeks ? " selected" : ""}>${v === 1 ? "1 (solo i dati più recenti)" : v + " successivi"}</option>`).join("")}</select></label>
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
     </div>
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
@@ -1472,21 +1451,21 @@ async function viewProva(main) {
     <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
     <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti, SMin, SMax, consumo medio mensile e indice di regolarità coerenti tra loro. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
-    <li>Con più settimane, i dati evolvono: vendite, arrivi degli ordini aperti, riordini e qualche revisione delle scorte. Così si vedono muoversi andamento, indicatori e confronti.</li>
-    <li>Ricevi un unico file .zip con due Excel per ogni settimana. Caricali in «Nuovo ordine» o in «Carica settimana», una settimana alla volta e in ordine di data.</li></ul></section>`;
+    <li>Con più caricamenti, i dati evolvono da uno all'altro: vendite, arrivi degli ordini aperti, riordini e qualche revisione delle scorte. Così si vedono muoversi andamento, indicatori e confronti.</li>
+    <li>Ricevi un unico file .zip con due Excel per ogni caricamento: liste movimentazione e giacenze. Caricali in «Nuovo ordine» o in «Carica dati»; con più caricamenti, uno alla volta e in ordine di numero.</li></ul></section>`;
   $("#gf").onsubmit = async e => {
     e.preventDefault();
     const n = v => Math.round(parseNum(v));
     P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
-    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.start = mondayISO(new Date($("#gs").value + "T12:00:00")); P.seed = n($("#gseed").value) || 1;
+    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1;
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
       st.textContent = "Genero i dati…"; await new Promise(r => setTimeout(r, 30));
       const weeks = generateData(P), zip = new window.JSZip();
       for (let w = 0; w < weeks.length; w++) {
-        const d = new Date(P.start + "T12:00:00"); d.setDate(d.getDate() + 7 * w); const iso = mondayISO(d), tag = `settimana_${String(isoWeek(iso)).padStart(2, "0")}_${iso}`;
-        st.textContent = `Preparo la settimana ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
+        const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
+        st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
         const wa = XLSX.utils.book_new(), sa = XLSX.utils.aoa_to_sheet([["LISTA MOVIMENTAZIONE"], G_HDR_A].concat(weeks[w].A));
         XLSX.utils.book_append_sheet(wa, sa, "Liste Movimentazione");
         zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
@@ -1495,7 +1474,7 @@ async function viewProva(main) {
       }
       st.textContent = "Comprimo i file…";
       const blob = await zip.generateAsync({ type: "blob" }), url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url; a.download = `dati_di_prova_${P.nA}_codici_${P.weeks}_settimane.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+      a.href = url; a.download = `dati_di_prova_${P.nA}_codici${P.weeks > 1 ? `_${P.weeks}_caricamenti` : ""}.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
       st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip.`;
     } catch (x) { st.textContent = ""; toast("Generazione non riuscita: " + x.message); }
     finally { b.disabled = false; }
@@ -1520,9 +1499,9 @@ async function viewAdmin(main) {
       <label class="field" for="ud">Concessionaria<select id="ud">${dealers.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label>
       <button class="btn primary" type="submit">Crea utente</button></div></form>
   </section>
-  <section class="panel"><h2>Concessionarie</h2>${dealers.length ? `<div class="tablebox"><table><thead><tr><th>Concessionaria</th><th>Codice</th><th class="num">Settimane caricate</th><th class="num">Utenti attivi</th><th></th></tr></thead><tbody>
+  <section class="panel"><h2>Concessionarie</h2>${dealers.length ? `<div class="tablebox"><table><thead><tr><th>Concessionaria</th><th>Codice</th><th class="num">Caricamenti</th><th class="num">Utenti attivi</th><th></th></tr></thead><tbody>
     ${dealers.map(d => `<tr><td><b>${esc(d.name)}</b></td><td class="mono">${esc(d.code || "–")}</td><td class="num">${fmtN(d.n_weeks)}</td><td class="num">${fmtN(d.n_users)}</td><td><div class="row"><button class="btn sm" type="button" data-ed="${d.id}">Rinomina</button><button class="btn sm danger" type="button" data-wipe="${d.id}"${d.n_weeks ? "" : " disabled"}>Svuota dati</button><button class="btn sm danger" type="button" data-deld="${d.id}">Elimina</button></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nessuna concessionaria.</p>`}</section>
-  <section class="panel"><div class="bar"><div><h2>Settimane caricate</h2><p class="small muted">Ogni riga è un caricamento di liste movimentazione e giacenze. I file Excel originali non vengono conservati: eliminando una settimana si cancellano tutti i dati ricavati da quei file.</p></div>
+  <section class="panel"><div class="bar"><div><h2>Caricamenti</h2><p class="small muted">Ogni riga è un caricamento di liste movimentazione e giacenze. I file Excel originali non vengono conservati: eliminando un caricamento si cancellano tutti i dati ricavati da quei file.</p></div>
       <div class="row"><select id="upd" aria-label="Filtra per concessionaria"><option value="">Tutte le concessionarie</option>${dealers.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select><button class="btn danger" type="button" id="updel" disabled>Elimina selezionate</button></div></div>
     <div id="uplist"></div></section>
   <section class="panel"><h2>Utenti</h2><div class="tablebox"><table><thead><tr><th>Utente</th><th>Nome</th><th>Ruolo</th><th>Concessionaria</th><th>Ultimo accesso</th><th>Stato</th><th></th></tr></thead><tbody>
@@ -1549,10 +1528,10 @@ async function viewAdmin(main) {
   const sel = new Set();
   const renderUploads = () => {
     const f = +$("#upd").value || 0, list = uploads.filter(u => !f || u.dealer_id === f), host = $("#uplist");
-    host.innerHTML = list.length ? `<div class="tablebox flagbox"><table><thead><tr><th><input type="checkbox" id="upall" aria-label="Seleziona tutte"></th><th>Concessionaria</th><th>Settimana</th><th>File caricati</th><th>Caricata da</th><th class="num">Codici</th></tr></thead><tbody>
-      ${list.map(u => `<tr><td><input type="checkbox" data-up="${u.id}"${sel.has(u.id) ? " checked" : ""} aria-label="Seleziona"></td><td>${esc(u.dealer_name)}</td><td>${esc(weekLabel(u.week_date))}</td>
+    host.innerHTML = list.length ? `<div class="tablebox flagbox"><table><thead><tr><th><input type="checkbox" id="upall" aria-label="Seleziona tutte"></th><th>Concessionaria</th><th>Dati del</th><th>File caricati</th><th>Caricati da</th><th class="num">Codici</th></tr></thead><tbody>
+      ${list.map(u => `<tr><td><input type="checkbox" data-up="${u.id}"${sel.has(u.id) ? " checked" : ""} aria-label="Seleziona"></td><td>${esc(u.dealer_name)}</td><td>${esc(snapLabel(u.week_date, u.uploaded_at))}</td>
         <td class="small">${esc(u.file_a || "–")}<br><span class="muted">${esc(u.file_b || "")}</span></td><td class="small">${esc(u.uploaded_by_name || u.uploaded_by_user || "utente eliminato")}<br><span class="muted">${esc(new Date(u.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td><td class="num">${fmtN(u.n_codes)}</td></tr>`).join("")}</tbody></table></div>`
-      : `<p class="muted">Nessuna settimana caricata.</p>`;
+      : `<p class="muted">Nessun caricamento.</p>`;
     const upd = () => { $("#updel").disabled = !sel.size; $("#updel").textContent = sel.size ? `Elimina selezionate (${fmtN(sel.size)})` : "Elimina selezionate"; };
     $$("[data-up]", host).forEach(c => c.onchange = () => { const id = +c.dataset.up; if (c.checked) sel.add(id); else sel.delete(id); upd(); });
     if ($("#upall")) $("#upall").onchange = e => { list.forEach(u => e.target.checked ? sel.add(u.id) : sel.delete(u.id)); renderUploads(); };
@@ -1562,22 +1541,22 @@ async function viewAdmin(main) {
   renderUploads();
   $("#updel").onclick = async () => {
     const n = sel.size; if (!n) return;
-    if (!await confirmTyped("Eliminare le settimane selezionate?", `Verranno cancellate <b>${fmtN(n)}</b> settimane con tutti i codici, gli indicatori e lo storico ricavati da quei file. L'operazione non si può annullare.`, "ELIMINA")) return;
-    try { const r = await api("POST", "/api/snapshots/delete", { ids: [...sel] }); toast(`${fmtN(r.n)} settimane eliminate.`); state.snapshots = []; viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
+    if (!await confirmTyped("Eliminare i caricamenti selezionati?", `Verranno cancellati <b>${fmtN(n)}</b> caricamenti con tutti i codici, gli indicatori e lo storico ricavati da quei file. L'operazione non si può annullare.`, "ELIMINA")) return;
+    try { const r = await api("POST", "/api/snapshots/delete", { ids: [...sel] }); toast(`${fmtN(r.n)} caricamenti eliminati.`); state.snapshots = []; viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
   };
   $$("[data-wipe]", main).forEach(b => b.onclick = async () => {
     const d = dealers.find(x => x.id === +b.dataset.wipe);
-    const ok = await confirmTyped(`Svuotare i dati di ${d.name}?`, `Verranno cancellate tutte le <b>${fmtN(d.n_weeks)}</b> settimane caricate e il relativo storico. Concessionaria e utenti restano. <label class="check" for="wflags"><input type="checkbox" id="wflags"> Cancella anche l'elenco dei codici su richiesta</label>`, d.name, () => $("#wflags") && $("#wflags").checked);
+    const ok = await confirmTyped(`Svuotare i dati di ${d.name}?`, `Verranno cancellati tutti i <b>${fmtN(d.n_weeks)}</b> caricamenti e il relativo storico. Concessionaria e utenti restano. <label class="check" for="wflags"><input type="checkbox" id="wflags"> Cancella anche l'elenco dei codici su richiesta</label>`, d.name, () => $("#wflags") && $("#wflags").checked);
     if (!ok) return;
-    try { const r = await api("DELETE", `/api/dealers/${d.id}/data${ok.extra ? "?flags=1" : ""}`); toast(`Cancellate ${fmtN(r.weeks)} settimane${r.flags ? ` e ${fmtN(r.flags)} codici su richiesta` : ""}.`); state.snapshots = []; viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
+    try { const r = await api("DELETE", `/api/dealers/${d.id}/data${ok.extra ? "?flags=1" : ""}`); toast(`Cancellati ${fmtN(r.weeks)} caricamenti${r.flags ? ` e ${fmtN(r.flags)} codici su richiesta` : ""}.`); state.snapshots = []; viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
   });
   $$("[data-deld]", main).forEach(b => b.onclick = async () => {
     const d = dealers.find(x => x.id === +b.dataset.deld);
-    if (!await confirmTyped(`Eliminare ${d.name}?`, `Verranno cancellati la concessionaria, le sue <b>${fmtN(d.n_weeks)}</b> settimane con tutto lo storico, l'elenco dei codici su richiesta e i suoi <b>${fmtN(d.n_users)}</b> utenti responsabili. L'operazione non si può annullare.`, d.name)) return;
+    if (!await confirmTyped(`Eliminare ${d.name}?`, `Verranno cancellati la concessionaria, i suoi <b>${fmtN(d.n_weeks)}</b> caricamenti con tutto lo storico, l'elenco dei codici su richiesta e i suoi <b>${fmtN(d.n_users)}</b> utenti responsabili. L'operazione non si può annullare.`, d.name)) return;
     try { const r = await api("DELETE", `/api/dealers/${d.id}`); toast(`Concessionaria eliminata${r.users ? ` con ${fmtN(r.users)} utenti` : ""}.`); if (state.dealerId === d.id) { state.dealerId = null; try { localStorage.removeItem("ig_dealer"); } catch (e) {} } state.snapshots = []; state.me = await api("GET", "/api/me"); state.dealers = state.me.dealers; route(); } catch (x) { if (!x.silent) toast(x.message); }
   });
   $$("[data-delu]", main).forEach(b => b.onclick = async () => {
-    if (!await confirmBox("Eliminare l'utente?", `L'utente <b>${esc(b.dataset.name)}</b> verrà cancellato definitivamente e non potrà più accedere. Le settimane che ha caricato restano. Se vuoi solo bloccarlo temporaneamente, usa «Disattiva».`, "Elimina", true)) return;
+    if (!await confirmBox("Eliminare l'utente?", `L'utente <b>${esc(b.dataset.name)}</b> verrà cancellato definitivamente e non potrà più accedere. I dati che ha caricato restano. Se vuoi solo bloccarlo temporaneamente, usa «Disattiva».`, "Elimina", true)) return;
     try { await api("DELETE", `/api/users/${b.dataset.delu}`); toast("Utente eliminato."); viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
   });
   $$("[data-ed]", main).forEach(b => b.onclick = () => {

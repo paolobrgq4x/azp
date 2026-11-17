@@ -52,8 +52,7 @@ CREATE TABLE IF NOT EXISTS snapshots (
   n_sotto int, pz_sotto float8, val_sotto float8,
   n_eccesso int, val_eccesso float8,
   n_fermo int, val_fermo float8,
-  n_nogiac int, n_nostorico int,
-  UNIQUE (dealer_id, week_date)
+  n_nogiac int, n_nostorico int
 );
 CREATE TABLE IF NOT EXISTS items (
   snapshot_id int NOT NULL REFERENCES snapshots(id) ON DELETE CASCADE,
@@ -96,6 +95,9 @@ ALTER TABLE items ADD COLUMN IF NOT EXISTS last_sale date;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS ven_spc float8;
 ALTER TABLE items ADD COLUMN IF NOT EXISTS fab float8;
 CREATE INDEX IF NOT EXISTS sessions_exp_idx ON sessions (expires_at);
+-- Ogni caricamento è una riga a sé (week_date = giorno del caricamento), anche più volte nello stesso giorno.
+ALTER TABLE snapshots DROP CONSTRAINT IF EXISTS snapshots_dealer_id_week_date_key;
+CREATE INDEX IF NOT EXISTS snapshots_order_idx ON snapshots (dealer_id, week_date, uploaded_at, id);
 `;
 
 async function migrate() { await pool.query(SCHEMA); }

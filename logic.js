@@ -110,7 +110,7 @@ function abcMap(items) {
   return m;
 }
 
-/* Valori disponibili per i filtri di una settimana */
+/* Valori disponibili per i filtri di un caricamento */
 function filterValues(items) {
   const abc = abcMap(items), g = {}, dg = {}, cl = { A: 0, B: 0, C: 0, N: 0 };
   for (const i of items) {
@@ -267,7 +267,7 @@ function scenario(items, p) {
     if (!l) {
       const why = [];
       if (c.tier === 1) why.push("A zero con fabbisogno"); else if (c.tier === 2) why.push("Sotto SMin");
-      if (c.status === "sotto" && c.streak > 1) why.push(`da ${c.streak} settimane`);
+      if (c.status === "sotto" && c.streak > 1) why.push(`da ${c.streak} caricamenti`);
       if (c.status === "eccesso") why.push("già sopra SMax");
       if (c.cons_mese > 0) why.push(`consumo medio ${c.cons_mese.toLocaleString("it-IT", { maximumFractionDigits: 2 })} pz/mese${R.consAdj ? ` (considerato ${c.cons_eff.toLocaleString("it-IT", { maximumFractionDigits: 2 })}, ${R.consAdj > 0 ? "+" : ""}${R.consAdj}%)` : ""}`);
       l = { rank: 0, code: c.code, descr: c.descr, loc: c.loc, dg: c.dg, grp: c.grp, cls: c.cls, status: c.status, in_b: c.in_b, tier: c.tier,
@@ -395,7 +395,7 @@ function cleanRules(r) {
 }
 const ROUND = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
 
-/* Indicatori di una settimana. La rotazione annua è il consumo medio mensile × 12. */
+/* Indicatori di un caricamento. La rotazione annua è il consumo medio mensile × 12. */
 function kpis(items, flagged = new Set(), sampleCap = 5000) {
   const hist = items.filter(i => i.status !== "nostorico");
   const sum = (a, f) => a.reduce((t, i) => t + f(i), 0);
