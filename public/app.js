@@ -340,7 +340,7 @@ function wStep1(body, main) {
     $("#pextra").innerHTML = W.purpose === "free"
       ? `<label class="field" for="pmc">Copertura massima per codice oltre la SMax (facoltativa)<select id="pmc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === rules().maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>
          <p class="small muted">La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Il limite è in mesi di consumo medio sopra la SMax: con 2 mesi, un codice che vende 3 pezzi al mese può avere al massimo 6 pezzi oltre la SMax. Senza limite l'importo viene speso tutto; con un limite, quello che non trova posto resta non speso.</p>`
-      : `<p class="small muted">${W.purpose === "cover" ? "Il risultato propone le quantità che coprono il periodo, da confermare riga per riga, con la spalmatura settimanale." : "Se tutti i codici arrivano alla SMax prima che l'importo sia finito, il resto non viene speso e la piattaforma dice quanto."}</p>`;
+      : `<p class="small muted">${W.purpose === "cover" ? "Il risultato propone le quantità che coprono il periodo, da confermare riga per riga." : "Se tutti i codici arrivano alla SMax prima che l'importo sia finito, il resto non viene speso e la piattaforma dice quanto."}</p>`;
   };
   const pick = id => { const r = $("#pp_" + id); if (!r.checked) { r.checked = true; W.purpose = id; extra(); } };
   $$("input[name=pp]", body).forEach(r => r.onchange = () => { W.purpose = r.value; extra(); });
@@ -474,7 +474,6 @@ async function wCompute() {
   if (seq !== W.seq) return false;   // nel frattempo è partito un calcolo più recente
   const scope = [codes.length ? `${fmtN(codes.length)} codici scelti` : "", W.groups.length ? "gruppi " + W.groups.join(", ") : "", W.abc.length ? "classe " + W.abc.join("/") : ""].filter(Boolean).join(" · ");
   r.title = `${SCENARI[mode].t} · ${mode === "cover" ? orizzLabel(RR.months) : fmtE(wBudget())}${mode === "free" && RR.maxCover ? ` (al massimo ${oltreTxt(RR.maxCover)})` : ""}${scope ? " · " + scope : ""}`;
-  r.horizonWeeks = mode === "cover" ? Math.max(2, Math.round(RR.months * 4.33)) : null;
   const O = state.ordine;
   O.result = r; O.show = 100; O.history = [{ title: r.title, s: r.summary, r }].concat((O.history || []).filter(h => h.title !== r.title)).slice(0, 8);
   return true;
@@ -871,58 +870,6 @@ function renderHistory(sel = "#ohist", resSel = "#ores", recalc) {
   </tbody></table></div><p class="small muted">Gli scenari restano qui finché non cambi settimana o ricarichi la pagina.</p></section>`;
   $$("[data-h]", host).forEach(b => b.onclick = () => { state.ordine.result = H[+b.dataset.h].r; renderProposal(resSel, recalc); renderHistory(sel, resSel, recalc); $(resSel).scrollIntoView({ behavior: "smooth", block: "start" }); });
 }
-/* ============ Spalmatura settimanale ============
- * Per ogni riga: la parte urgente (per tornare a SMin) arriva nella prima settimana;
- * poi si simula la giacenza che scende con la domanda settimanale (consumo medio mensile × 12 / 52) e,
- * nelle settimane in cui si può consegnare, si fa arrivare quanto serve per non scendere
- * sotto la SMin fino alla consegna successiva. Ciò che non serve entro l'orizzonte resta "non necessario per ora".
- */
-function phaseLines(lines, weeks, freq) {
-  return lines.map(l => {
-    const sched = new Array(weeks).fill(0), d = (l.cons_eff != null ? l.cons_eff : l.cons_mese || 0) * 12 / 52, disp = l.giac + l.ord;
-    if (!(d > 0)) { sched[0] = l.qty; return { l, sched, later: 0 }; }
-    const urgent = Math.min(l.qty, Math.max(0, Math.ceil(l.smin - disp)));
-    let rest = l.qty - urgent, s = disp + urgent; sched[0] = urgent;
-    const floor = l.smin > 0 ? l.smin : 0;
-    for (let w = 0; w < weeks; w++) {
-      if (rest > 0 && w % freq === 0) {
-        const projected = s - d * Math.min(freq, weeks - w);
-        if (projected < floor) { const q = Math.min(rest, Math.ceil(floor - projected - 1e-9)); if (q > 0) { sched[w] += q; s += q; rest -= q; } }
-      }
-      s -= d;
-    }
-    return { l, sched, later: rest };
-  });
-}
-function weekDates(base, n) {
-  const [y, m, d] = base.split("-").map(Number);
-  return Array.from({ length: n }, (_, k) => { const dt = new Date(Date.UTC(y, m - 1, d + 7 * (k + 1))); return dt.toISOString().slice(0, 10); });
-}
-function renderPhase(host, R) {
-  const O = state.ordine, S = R.summary;
-  if (!O.phase || O.phase.key !== R) O.phase = { key: R, weeks: R.horizonWeeks ? Math.min(52, R.horizonWeeks) : S.mode === "cover" ? Math.min(26, Math.max(2, Math.round(S.months * 4.33))) : 4, freq: 1 };
-  const P = O.phase, ph = phaseLines(R.lines, P.weeks, P.freq), dates = weekDates(R.week, P.weeks);
-  const totQ = dates.map((_, w) => ph.reduce((t, x) => t + x.sched[w], 0));
-  const totV = dates.map((_, w) => ph.reduce((t, x) => t + x.sched[w] * x.l.cost, 0));
-  const laterQ = ph.reduce((t, x) => t + x.later, 0), laterV = ph.reduce((t, x) => t + x.later * x.l.cost, 0), nLater = ph.filter(x => x.later > 0).length;
-  const lab = s => `Sett. ${isoWeek(s)} · ${dShort(s)}`;
-  host.innerHTML = `<div class="bar"><div><h2>Spalmatura settimanale</h2><p class="small muted">Quando ordinare ogni pezzo perché arrivi quando serve, seguendo la domanda settimanale.</p></div>
-      <div class="row"><label class="field" for="phw">Orizzonte<select id="phw">${[...new Set([2, 4, 6, 8, 13, 26, 52, P.weeks])].sort((a, b) => a - b).map(n => `<option value="${n}"${n === P.weeks ? " selected" : ""}>${n} settimane${n === 13 ? " (trimestre)" : ""}</option>`).join("")}</select></label>
-      <label class="field" for="phf">Consegne<select id="phf"><option value="1"${P.freq === 1 ? " selected" : ""}>ogni settimana</option><option value="2"${P.freq === 2 ? " selected" : ""}>ogni 2 settimane</option><option value="4"${P.freq === 4 ? " selected" : ""}>ogni 4 settimane</option></select></label></div></div>
-    <div class="grid2"><div><h3 class="small muted">Valore da ordinare per settimana</h3><div id="phbars"></div></div>
-      <div class="msg">${laterQ ? (S.mode === "free" ? `<b>${fmtN(laterQ)} pezzi</b> (${fmtE(laterV)}) su ${fmtN(nLater)} codici coprono domanda <b>oltre ${fmtN(P.weeks)} settimane</b>: sono acquisti in anticipo, che arrivano a magazzino prima di servire.` : `<b>${fmtN(laterQ)} pezzi</b> (${fmtE(laterV)}) su ${fmtN(nLater)} codici <b>non servono entro ${fmtN(P.weeks)} settimane</b> con la domanda attuale: puoi rimandarli o allungare l'orizzonte.`) : `Tutti i pezzi dell'ordine servono entro ${fmtN(P.weeks)} settimane.`}
-        <br><span class="small">La prima settimana contiene la parte urgente, cioè quanto serve per tornare alla SMin. I codici senza domanda registrata vanno tutti nella prima settimana.</span></div></div>
-    <div class="tablebox"><table><thead><tr><th>Codice</th><th>Descrizione</th><th class="num">Totale</th>${dates.map(s => `<th class="num">${esc(lab(s))}</th>`).join("")}<th class="num">${R.summary.mode === "free" ? "Acquisti in anticipo" : "Non necessario per ora"}</th></tr></thead><tbody>
-      ${ph.slice(0, O.show || 100).map(x => `<tr><td class="code">${esc(x.l.code)}</td><td class="desc">${esc(x.l.descr)}</td><td class="num"><b>${fmtN(x.l.qty)}</b></td>${x.sched.map(q => `<td class="num${q ? "" : " muted"}">${q ? fmtN(q) : "·"}</td>`).join("")}<td class="num">${x.later ? fmtN(x.later) : "–"}</td></tr>`).join("")}
-      <tr class="tot"><td colspan="2"><b>Totale pezzi</b></td><td class="num"><b>${fmtN(S.pieces)}</b></td>${totQ.map(q => `<td class="num"><b>${fmtN(q)}</b></td>`).join("")}<td class="num"><b>${fmtN(laterQ)}</b></td></tr>
-      <tr class="tot"><td colspan="2"><b>Totale valore</b></td><td class="num"><b>${fmtE(S.spent)}</b></td>${totV.map(v => `<td class="num">${fmtE(v)}</td>`).join("")}<td class="num">${fmtE(laterV)}</td></tr>
-    </tbody></table></div>${R.lines.length > (O.show || 100) ? `<p class="small muted">A video le prime ${fmtN(O.show || 100)} righe; i totali e il file Excel comprendono tutte le righe.</p>` : ""}`;
-  bars($("#phbars", host), dates.map((s, w) => ({ label: lab(s), value: totV[w], sub: `${fmtN(totQ[w])} pezzi` })).concat(laterQ ? [{ label: "Non necessario per ora", value: laterV, sub: `${fmtN(laterQ)} pezzi`, color: "var(--gray)" }] : []), { fmt: fmtE });
-  $("#phw", host).onchange = e => { P.weeks = +e.target.value; renderPhase(host, R); };
-  $("#phf", host).onchange = e => { P.freq = +e.target.value; renderPhase(host, R); };
-  return { ph, dates, lab };
-}
-
 function renderProposal(sel = "#ores", recalc) {
   const R = state.ordine.result, S = R.summary, host = $(sel); if (!host) return;
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
@@ -953,9 +900,8 @@ function renderProposal(sel = "#ores", recalc) {
   ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low + (S.excluded.minline || 0)) ? `<div class="msg">Esclusi: ${[S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con consumo ma non tenuti a scorta (SMin e SMax a zero)` : "", S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati su richiesta` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : "", S.excluded.minline ? `${fmtN(S.excluded.minline)} righe sotto il valore minimo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
   ${notes.join("\n  ")}
   ${S.by_group.length > 1 ? `<section class="panel"><h3>Valore dell'ordine per gruppo principale</h3><div id="obg"></div></section>` : ""}
-  ${R.lines.length ? `<section class="panel" id="odec"></section><section class="panel" id="phase"></section>` : `<section class="panel"><p class="muted">Nessun codice da ordinare in questo scenario.</p></section>`}`;
+  ${R.lines.length ? `<section class="panel" id="odec"></section>` : `<section class="panel"><p class="muted">Nessun codice da ordinare in questo scenario.</p></section>`}`;
   renderRules($("#rbox", host), S.mode, alertOnly => { if (alertOnly) { renderProposal(sel, recalc); return; } if (recalc) recalc(); else $("#of").requestSubmit(); });
-  if ($("#phase", host)) renderPhase($("#phase", host), R);
   if ($("#obg", host)) bars($("#obg", host), S.by_group.map(g => ({ label: `${g.id === "X" ? "–" : g.id} ${g.label}`, value: g.value, sub: `${fmtN(g.n)} righe` })), { fmt: fmtE });
   if ($("#odec", host)) renderDecision($("#odec", host), R, recalc, sel);
 }
@@ -1097,11 +1043,6 @@ function exportConfirmedXls(R, rows) {
   XLSX.utils.book_append_sheet(wb, ws, "Ordine confermato");
   const rej = rows.filter(r => r.d === "no").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Quantità proposta": l.qty, "Valore netto": Math.round(l.value * 100) / 100, "Avviso": al.join(" · ") }));
   if (rej.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rej), "Righe non accettate");
-  const acc = R.lines.filter(l => R.dec[l.code] === "si"), P = state.ordine.phase || { weeks: 4, freq: 1 };
-  const ph = phaseLines(acc, P.weeks, P.freq), dates = weekDates(R.week, P.weeks), lab = s => `Sett. ${isoWeek(s)} (${dIt(s)})`;
-  const cal = []; dates.forEach((d, w) => ph.forEach(x => { if (x.sched[w]) cal.push({ "Settimana": lab(d), "Codice": x.l.code, "Descrizione": x.l.descr, "Quantità": x.sched[w], "Valore netto": Math.round(x.sched[w] * x.l.cost * 100) / 100 }); }));
-  ph.forEach(x => { if (x.later) cal.push({ "Settimana": R.summary.mode === "free" ? "Acquisti in anticipo" : "Oltre l'orizzonte", "Codice": x.l.code, "Descrizione": x.l.descr, "Quantità": x.later, "Valore netto": Math.round(x.later * x.l.cost * 100) / 100 }); });
-  if (cal.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(cal), "Calendario ordini");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati della", M.week], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
     ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
   XLSX.writeFile(wb, `ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.xlsx`);
@@ -1144,9 +1085,6 @@ function exportProposalXls(R) {
   const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(k => ({ wch: Math.max(10, k.length + 2) }));
   XLSX.utils.book_append_sheet(wb, ws, "Proposta");
-  const P = state.ordine.phase || { weeks: 4, freq: 1 }, ph = phaseLines(R.lines, P.weeks, P.freq), dates = weekDates(R.week, P.weeks), lab = s => `Sett. ${isoWeek(s)} (${dIt(s)})`;
-  const wide = ph.map(x => { const o = { "Codice": x.l.code, "Descrizione": x.l.descr, "Totale": x.l.qty }; dates.forEach((d, w) => { o[lab(d)] = x.sched[w] || ""; }); o[S.mode === "free" ? "Acquisti in anticipo" : "Non necessario per ora"] = x.later || ""; return o; });
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(wide), "Spalmatura");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Settimana", weekLabel(R.week)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
   XLSX.writeFile(wb, `proposta_${dealerName(state.dealerId).replace(/[^\w\-]+/g, "_")}_${R.week}_${S.mode}.xlsx`);
 }
