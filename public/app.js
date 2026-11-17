@@ -1227,37 +1227,53 @@ async function showCode() {
 /* ============ Regole di approvvigionamento (pagina di sola lettura) ============ */
 async function viewRegole(main) {
   const r = rules(), modes = Object.keys(SCENARI);
-  main.innerHTML = `<div class="head"><div><h1>Regole di approvvigionamento</h1><p class="sub">Come la piattaforma classifica i codici e calcola le quantità da ordinare nei tre scenari.</p></div></div>
+  // Gli esempi usano sempre gli stessi quattro codici; i numeri degli scenari sono quelli che dà il motore di calcolo.
+  const ex = t => `<div class="ex"><b>Esempio</b> ${t}</div>`;
+  main.innerHTML = `<div class="head"><div><h1>Regole di approvvigionamento</h1><p class="sub">Come la piattaforma classifica i codici e calcola le quantità da ordinare nei tre scenari. Ogni regola ha un esempio.</p></div></div>
+  <section class="panel"><h3>I codici degli esempi</h3><p class="small muted">Quattro codici inventati, usati in tutti gli esempi della pagina.</p>
+    <div class="tablebox"><table><thead><tr><th>Codice</th><th class="num">Costo</th><th class="num">Consumo medio (pz/mese)</th><th class="num">Regolarità</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Giacenza</th><th class="num">Ordini aperti</th></tr></thead><tbody>
+      <tr><td>Filtro olio</td><td class="num">10 €</td><td class="num">8</td><td class="num">9</td><td class="num">8</td><td class="num">30</td><td class="num">3</td><td class="num">2</td></tr>
+      <tr><td>Candela</td><td class="num">12 €</td><td class="num">10</td><td class="num">6</td><td class="num">10</td><td class="num">40</td><td class="num">12</td><td class="num">0</td></tr>
+      <tr><td>Pastiglie freno</td><td class="num">40 €</td><td class="num">3</td><td class="num">8</td><td class="num">3</td><td class="num">10</td><td class="num">0</td><td class="num">0</td></tr>
+      <tr><td>Batteria</td><td class="num">90 €</td><td class="num">1</td><td class="num">3</td><td class="num">1</td><td class="num">3</td><td class="num">0</td><td class="num">0</td></tr>
+    </tbody></table></div></section>
   <section class="panel rules"><h3>Le basi</h3><ul>
-    <li><b>Disponibile</b> = giacenza + ordini aperti.</li>
-    <li><b>Vendita regolare</b> = consumo medio mensile × indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99; un valore più alto nel file conta come 11,99. Se nei dati manca l'indice, conta solo il consumo medio.</li>
-    <li><b>Sempre esclusi</b> dagli scenari: i codici non tenuti a scorta (SMin e SMax a zero), i fermi, quelli senza storico e quelli segnati come «su richiesta».</li></ul></section>
+    <li><b>Disponibile</b> = giacenza + ordini aperti.${ex("Filtro olio: 3 in giacenza + 2 ordinati = 5 disponibili.")}</li>
+    <li><b>Vendita regolare</b> = consumo medio mensile × indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99; un valore più alto nel file conta come 11,99. Se nei dati manca l'indice, conta solo il consumo medio.${ex("Filtro olio: 8 × 9 ÷ 12 = 6 pezzi al mese. Candela: 10 × 6 ÷ 12 = 5. Pastiglie: 3 × 8 ÷ 12 = 2. Batteria: 1 × 3 ÷ 12 = 0,25. Un codice con regolarità 13,5 nel file viene letto come 11,99.")}</li>
+    <li><b>Sempre esclusi</b> dagli scenari: i codici non tenuti a scorta (SMin e SMax a zero), i fermi, quelli senza storico e quelli segnati come «su richiesta».${ex("un codice con SMin 0 e SMax 0 che vende 0,4 pezzi al mese non entra mai in un ordine, nemmeno con un importo alto.")}</li></ul></section>
   <section class="panel rules"><h3>Come viene classificato ogni codice</h3><ul>
-    <li><b>Sotto scorta</b>: disponibile sotto la SMin. <b>A zero</b>: disponibile a zero con SMin sopra zero; nella tabella della proposta compaiono in cima.</li>
-    <li><b>Eccesso</b>: giacenza sopra la SMax; l'eccedenza è valorizzata al costo. <b>Fermo</b>: giacenza con SMin e SMax a zero.</li>
-    <li><b>In linea</b>: tra SMin e SMax. <b>Non in giacenza</b>: codice delle liste assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nelle liste.</li></ul></section>
+    <li><b>Sotto scorta</b>: disponibile sotto la SMin.${ex("Filtro olio: 5 disponibili, SMin 8.")}</li>
+    <li><b>A zero</b>: disponibile a zero con SMin sopra zero; nella tabella della proposta compaiono in cima.${ex("Pastiglie e batteria: 0 disponibili, SMin 3 e 1.")}</li>
+    <li><b>Eccesso</b>: giacenza sopra la SMax; l'eccedenza è valorizzata al costo.${ex("se le candele in giacenza fossero 45 con SMax 40, l'eccedenza sarebbe 5 pezzi × 12 € = 60 €.")}</li>
+    <li><b>Fermo</b>: giacenza con SMin e SMax a zero.${ex("2 pezzi a magazzino di un codice con SMin 0 e SMax 0.")}</li>
+    <li><b>In linea</b>: tra SMin e SMax.${ex("Candela: 12 disponibili, SMin 10, SMax 40.")}</li>
+    <li><b>Non in giacenza</b>: codice delle liste assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nelle liste.${ex("un codice presente solo nel file giacenze, con 3 pezzi, è «senza storico»: senza prezzo né scorte non entra negli ordini.")}</li></ul></section>
   <section class="panel rules"><h3>A. ${esc(SCENARI.cover.t)} (1, 2 o 3 mesi)</h3><ul>
     <li>Obiettivo di ogni codice = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax.</li>
-    <li>Si ordina obiettivo − disponibile. Non c'è un importo: la spesa è il risultato.</li></ul></section>
+    <li>Si ordina obiettivo − disponibile. Non c'è un importo: la spesa è il risultato.</li></ul>
+    ${ex(`<b>1 mese</b>: filtro olio 8 × 1 = 8 − 5 disponibili = <b>3</b>; pastiglie 3 − 0 = <b>3</b>; batteria 1 − 0 = <b>1</b>; candela niente (obiettivo 10, ne ha 12). Spesa 240 €.<br>
+      <b>3 mesi</b>: filtro 24 − 5 = <b>19</b>; candela 30 − 12 = <b>18</b>; pastiglie <b>9</b>; batteria <b>3</b>. Spesa 1.036 €.<br>
+      <b>Tetto SMax</b>: se le pastiglie vendessero 4 pezzi al mese, per 3 mesi ne servirebbero 12, ma la SMax è 10: se ne ordinano 10.`)}</section>
   <section class="panel rules"><h3>B. ${esc(SCENARI.amount.t)} (entro SMin e SMax)</h3><ol>
-    <li><b>SMin</b>: prima si riportano alla SMin i codici che sono sotto. Se l'importo non basta, passano prima quelli con la regolarità più alta e, a parità, con il consumo più alto.</li>
-    <li><b>Proporzione</b>: il resto compra a tutti lo stesso numero di mesi di vendita regolare. Chi vende di più e con più continuità riceve più pezzi.</li>
-    <li><b>SMax</b>: chi arriva alla SMax si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, il resto non si spende e la piattaforma dice quanto.</li></ol></section>
+    <li><b>SMin</b>: prima si riportano alla SMin i codici che sono sotto. Se l'importo non basta, passano prima quelli con la regolarità più alta e, a parità, con il consumo più alto.${ex("con 150 €: filtro olio (regolarità 9) 3 pezzi = 30 €, poi pastiglie (regolarità 8) 3 pezzi = 120 €. L'importo è finito: la batteria (regolarità 3) resta a zero.")}</li>
+    <li><b>Proporzione</b>: il resto compra a tutti lo stesso numero di mesi di vendita regolare. Chi vende di più e con più continuità riceve più pezzi.${ex("con 1.000 €: 240 € riportano tutti alla SMin; i 760 € restanti comprano circa 4 mesi di vendita regolare. Candela 4 × 5 = 20 pezzi, filtro 4 × 6 = 24, pastiglie 4 × 2 = 8, batteria 4 × 0,25 = 1.")}</li>
+    <li><b>SMax</b>: chi arriva alla SMax si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, il resto non si spende e la piattaforma dice quanto.${ex("con 1.000 € il filtro si ferma a 22 pezzi (arriva a 30, la sua SMax) invece di 24, le pastiglie a 7 (arrivano a 10) invece di 8. Con 1.500 € tutti arrivano alla SMax spendendo 1.256 €: i 244 € restanti non vengono spesi.")}</li></ol></section>
   <section class="panel rules"><h3>C. ${esc(SCENARI.free.t)} (anche oltre la SMax)</h3><ul>
-    <li>Come B; quello che B lascerebbe non speso va oltre la SMax con la stessa proporzione: ogni codice riceve gli stessi mesi in più di vendita regolare.</li>
-    <li>La SMax viene superata solo dopo che tutti i codici ci sono arrivati.</li>
-    <li>Limite facoltativo: da 1 a 6 mesi di consumo medio sopra la SMax per codice. Con il limite, quello che non trova posto resta non speso.</li></ul></section>
+    <li>Come B; quello che B lascerebbe non speso va oltre la SMax con la stessa proporzione: ogni codice riceve gli stessi mesi in più di vendita regolare.${ex("con 2.146 €: 1.256 € portano tutti alla SMax, come in B; gli 890 € restanti comprano 4 mesi di vendita regolare oltre la SMax. Filtro olio +24 (4 × 6), candela +20 (4 × 5), pastiglie +8 (4 × 2), batteria +1 (4 × 0,25).")}</li>
+    <li>La SMax viene superata solo dopo che tutti i codici ci sono arrivati.${ex("con 1.000 € in importo libero il risultato è uguale a B: non tutti sono arrivati alla SMax, quindi nessuno la supera.")}</li>
+    <li>Limite facoltativo: da 1 a 6 mesi di consumo medio sopra la SMax per codice. Con il limite, quello che non trova posto resta non speso.${ex("con 3.000 € e limite 1 mese: filtro al massimo 30 + 8 = 38, candela 40 + 10 = 50, pastiglie 10 + 3 = 13, batteria 3 + 1 = 4. Si spendono 1.666 €; 1.334 € restano non spesi.")}</li></ul></section>
   <section class="panel rules"><h3>Pezzi interi</h3><ul>
-    <li>I pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'avanzo non basta per un pezzo di un codice si passa agli altri: per questo negli scenari a importo possono restare pochi euro.</li></ul></section>
+    <li>I pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'avanzo non basta per un pezzo di un codice si passa agli altri: per questo negli scenari a importo possono restare pochi euro.${ex("con 1.000 €, arrivati a quasi 4 mesi restano 32 €. Toccherebbe alla batteria (1 pezzo a 4 mesi), ma costa 90 €: si passa oltre, e le candele ricevono il 20° e il 21° pezzo (24 €). Avanzano 8 €; spesa 992 €.")}</li></ul></section>
   <section class="panel rules"><h3>Regole che ogni utente può cambiare</h3><ul>
-    <li><b>Correzione del consumo medio</b>, da −20% a +20%, per stagionalità o andamento.</li>
-    <li><b>Arrotondamento</b> nello scenario a periodo: al pezzo più vicino, per eccesso o per difetto; si possono anche escludere le righe sotto un valore minimo.</li>
-    <li><b>Esclusioni</b>: codici su richiesta e soglia minima di consumo medio.</li>
-    <li><b>Avviso</b> sulle righe che dopo l'ordine superano un certo numero di mesi di copertura (di base 3).</li>
+    <li><b>Correzione del consumo medio</b>, da −20% a +20%, per stagionalità o andamento.${ex("con −20% il filtro olio conta 8 × 0,8 = 6,4 pezzi al mese invece di 8.")}</li>
+    <li><b>Arrotondamento</b> nello scenario a periodo: al pezzo più vicino, per eccesso o per difetto.${ex("6,4 pezzi diventano 6 (più vicino), 7 (per eccesso) o 6 (per difetto). La SMin resta il pavimento: il filtro arriva comunque a 8.")}</li>
+    <li><b>Righe sotto un valore</b> nello scenario a periodo: le righe che valgono meno vengono tolte.${ex("2 mesi con soglia 100 €: la riga delle candele (8 pezzi × 12 € = 96 €) esce dalla proposta.")}</li>
+    <li><b>Esclusioni</b>: codici su richiesta e soglia minima di consumo medio.${ex("con soglia 0,5 pezzi al mese, un codice che ne vende 0,3 non viene proposto.")}</li>
+    <li><b>Avviso</b> sulle righe che dopo l'ordine superano un certo numero di mesi di copertura (di base 3).${ex("con 1.000 € il filtro olio arriva a 30 pezzi = 3,75 mesi di consumo, le pastiglie a 3,3 mesi e le candele a 3,3: le tre righe hanno l'avviso «oltre 3 mesi». La batteria, a 1 mese, no.")}</li>
     <li>Si cambiano dal pannello «Regole di riordino» sopra ogni proposta, in «Nuovo ordine» e in «Scenari d'ordine»; restano salvate per il tuo utente.</li></ul></section>
   <section class="panel"><h3>Le tue regole adesso</h3><ul class="small">${modes.map(m => `<li><b>${esc(SCENARI[m].t)}</b>: ${esc(rulesText(r, m))}</li>`).join("")}</ul></section>
   <section class="panel rules"><h3>Dopo il calcolo</h3><ul>
-    <li>Ogni quantità della proposta si apre per vedere il conto passo passo. Ogni riga si accetta o si rifiuta; l'ordine confermato si scarica in Excel o PDF.</li></ul></section>`;
+    <li>Ogni quantità della proposta si apre per vedere il conto passo passo. Ogni riga si accetta o si rifiuta; l'ordine confermato si scarica in Excel o PDF.${ex("nella proposta da 1.000 € tocca il 21 delle candele: vedi disponibile, vendita regolare, mesi comprati e il pezzo in più arrivato con l'avanzo.")}</li></ul></section>`;
 }
 
 /* ============ Caricamento dei dati ============ */
