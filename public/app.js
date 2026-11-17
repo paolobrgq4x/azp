@@ -1456,59 +1456,72 @@ const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo lis
 const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.", "GrpOmog."];
 function generateData(o) {
   const R = rng(o.seed), pick = a => a[Math.floor(R() * a.length)], ri = (a, b) => a + Math.floor(R() * (b - a + 1)), rf = (a, b) => a + R() * (b - a);
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - R())) * Math.cos(2 * Math.PI * R());
+  const poisson = l => { if (l <= 0) return 0; if (l > 30) return Math.max(0, Math.round(l + Math.sqrt(l) * gauss())); let k = 0, p = 1; const L = Math.exp(-l); do { k++; p *= R(); } while (p > L); return k - 1; };
+  const r2 = v => Math.round(v * 100) / 100;
   const used = new Set(), DGS = [];
   for (let n = 1; n < 40; n++) DGS.push("H" + String(n).padStart(3, "0")); for (let n = 1; n < 15; n++) DGS.push("A" + String(n).padStart(3, "0")); for (let n = 1; n < 10; n++) DGS.push("M" + String(n).padStart(3, "0"));
   // 8 cifre: tre casuali, il gruppo principale, quattro casuali
   const newCode = () => { for (;;) { const pt = pick(G_PARTS), c = String(ri(100, 999)) + pt[0] + String(ri(0, 9999)).padStart(4, "0"); if (!used.has(c)) { used.add(c); return [c, pt]; } } };
   const loc = () => R() < .08 ? null : R() < .15 ? `${pick("ABHJKM".split(""))}${ri(1, 9)}${pick("ABCDEFG".split(""))}${ri(1, 9)}` : `${pick("ABHJKM".split(""))}${String(ri(1, 30)).padStart(2, "0")}${pick("ABCDEF".split(""))}${ri(1, 6)}`;
-  // profilo: quota di codici sotto SMin e sopra SMax nel primo caricamento
+  // profilo: quota di codici a scorta sotto SMin e sopra SMax, e quota di codici non a scorta con pezzi fermi, nel primo caricamento
   const prof = { equilibrato: [.25, .12, .2], alto: [.08, .35, .35], scarico: [.45, .04, .08] }[o.profile] || [.25, .12, .2];
-  // moltiplicatori delle quantità: qM per movimentazione e scorte (consumo, SMin, SMax), qG per le giacenze
+  // moltiplicatori: qM per il consumo (e quindi scorte e regolarità), qG per le giacenze
   const qM = o.qM || 1, qG = o.qG || 1;
+  const today = new Date(), ymd = d => +`${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
+  // Fasce di costo: i ricambi economici si vendono di più, si tengono a scorta anche se vendono poco e si riordinano in lotti più grandi.
+  //   costo        vendite   regolarità minima per la scorta   lotto (mesi di consumo tra SMin e SMax)
+  const band = c => c < 20 ? { k: 2.5, thr: 1.6, lot: 3 } : c < 100 ? { k: 1.2, thr: 2.5, lot: 2 } : c < 500 ? { k: .7, thr: 3.3, lot: 1 } : { k: .4, thr: 4.3, lot: .5 };
   const A = [];
-  for (let k = 0; k < o.nA; k++) {
-    const [c, pt] = newCode(), listino = Math.round(rf(pt[2], pt[3]) * 100) / 100, costo = Math.round(listino * rf(.55, .62) * 100) / 100;
-    const r = R(), smax0 = r < .45 ? 0 : r < .8 ? ri(1, 3) : r < .95 ? ri(4, 10) : ri(11, 40), smax = smax0 ? Math.max(1, Math.round(smax0 * qM)) : 0;
-    const smin = smax === 0 ? 0 : Math.max(1, Math.round(smax * rf(.5, .8)));
-    const ord = R() < .9 || smax === 0 ? 0 : ri(1, Math.max(1, smin));
-    // consumo medio mensile: per i codici a scorta la SMin è il consumo arrotondato per eccesso; gli altri si vendono poco o nulla
-    const cons_mese = Math.round((smax ? Math.max(.02, (smin - rf(.05, .95)) * Math.min(1, smax0 * qM)) : R() < .3 ? 0 : rf(.02, .45) * qM) * 100) / 100;   // con volumi bassi i codici a scorta minima vendono meno di un pezzo al mese
-    // indice di regolarità delle vendite (da 0 a 11,99, mai oltre): ogni mese si moltiplica per 0,9 e sale di 1,2 se il codice ha venduto,
-    // quindi a regime vale circa 12 × quota dei mesi con almeno una vendita. Con vendite casuali a C pezzi al mese quella quota è 1 − e^(−C),
-    // ridotta un po' perché le vendite arrivano a gruppi: chi vende 0,3 pezzi al mese sta intorno a 3, chi ne vende 3 o più vicino a 12.
-    // Il consumo medio dimentica in fretta (×0,7 al mese), la regolarità lentamente: un codice che non vende da mesi ha consumo 0 ma regolarità
-    // ancora sopra zero. A zero restano solo i codici mai venduti (circa 1 su 10 di quelli senza consumo).
-    const regolarita = Math.min(11.99, Math.round((cons_mese > 0 ? 12 * (1 - Math.exp(-cons_mese)) * rf(.8, 1) : R() < .9 ? rf(.05, 2.5) : 0) * 100) / 100);
-    const qv = R() < .12 ? +`2026${String(ri(1, 10)).padStart(2, "0")}${String(ri(1, 28)).padStart(2, "0")}` : R() < .6 ? ri(0, Math.max(1, smax * 2)) : 0;
-    A.push({ dg: pick(DGS), code: c, desc: pt[1], loc: loc(), listino, costo, qv, vspc: R() < .95 ? 0 : ri(1, 3), ord, fab: 0, regolarita, cons_mese, smin, smax, scad: R() < .94 ? "N" : "S" });
+  for (let n = 0; n < o.nA; n++) {
+    const [c, pt] = newCode(), listino = r2(rf(pt[2], pt[3])), costo = r2(listino * rf(.55, .62)), bd = band(costo);
+    // consumo medio mensile: un quarto dei codici non vende da mesi; gli altri hanno vendite molto diverse (pochi codici vendono molto)
+    const cons_mese = R() < .25 ? 0 : Math.max(.01, r2(Math.exp(Math.log(.25) + 1.25 * gauss()) * bd.k * qM));
+    // indice di regolarità delle vendite (da 0 a 11,99): ogni mese si moltiplica per 0,9 e sale di 1,2 se il codice ha venduto,
+    // quindi a regime vale circa 12 × quota dei mesi con almeno una vendita, cioè 12 × (1 − e^(−consumo)), un po' meno perché le vendite arrivano a gruppi.
+    // Il consumo medio dimentica in fretta (×0,7 al mese), la regolarità lentamente: chi non vende da mesi ha consumo 0 ma regolarità ancora sopra zero.
+    // A zero restano solo i codici mai venduti.
+    const regolarita = Math.min(11.99, r2(cons_mese > 0 ? 12 * (1 - Math.exp(-cons_mese)) * rf(.8, 1) : R() < .9 ? rf(.05, 2.5) : 0));
+    // scorta: solo i codici abbastanza regolari per la loro fascia di costo; SMin = un mese di consumo, SMax = SMin + il lotto di riordino
+    const stock = cons_mese > 0 && regolarita >= bd.thr;
+    const smin = stock ? Math.max(1, Math.round(cons_mese)) : 0;
+    const smax = stock ? smin + Math.round(cons_mese * bd.lot) : 0;
+    // venduto recente: pezzi venduti negli ultimi 12 mesi; per chi non vende da mesi, la data dell'ultima vendita
+    const qv = cons_mese > 0 ? poisson(cons_mese * 12) : regolarita > 0 ? ymd(new Date(today.getFullYear(), today.getMonth() - ri(4, 30), ri(1, 28))) : 0;
+    A.push({ dg: pick(DGS), code: c, desc: pt[1], loc: loc(), listino, costo, qv, vspc: R() < .97 ? 0 : ri(1, 2), ord: 0, fab: 0, regolarita, cons_mese, smin, smax, scad: R() < .94 ? "N" : "S" });
   }
   const giacOf = s => { const g = giac0(s) * qG, u = R(); return Math.floor(g + (qG === 1 ? 0 : u)); };   // arrotondamento casuale: in media la giacenza è proprio g
   const giac0 = s => {
-    if (s.smax === 0) return R() < (1 - prof[2]) ? 0 : ri(1, 5);
+    if (s.smax === 0) return R() < prof[2] ? ri(1, 3) : 0;   // non a scorta: di solito niente, a volte pezzi fermi
     const r = R();
-    if (r < prof[0]) return ri(0, Math.max(0, s.smin - 1));
+    if (r < prof[0]) return ri(0, s.smin - 1);
     if (r < 1 - prof[1]) return ri(s.smin, s.smax);
-    return s.smax + ri(1, Math.max(2, s.smax * 2));
+    return s.smax + ri(1, Math.max(1, Math.round(s.smax * .8)));
   };
   const nInA = Math.min(o.nA, Math.round(o.nB * .955)), nExtra = Math.max(0, o.nB - nInA);
   const order = A.map((_, i) => i).sort((x, y) => (A[x].smax === 0) - (A[y].smax === 0) || R() - .5);   // i codici con scorta entrano per primi in giacenza
   const inB = new Set(order.slice(0, nInA));
   const B = new Map();
-  A.forEach((s, i) => { if (!inB.has(i)) return; const g = giacOf(s); s.fab = Math.max(0, s.smin - g - s.ord); B.set(s.code, [s.code, R() < .85 ? "V" : pick(["A", "S", "Z"]), s.desc, R() < .92 ? "R" : "Z", g, pick(G_GRP)]); });
-  for (let k = 0; k < nExtra; k++) { const [c, pt] = newCode(); B.set(c, [c, "V", pt[1], "R", R() < .5 ? 0 : ri(1, 6), pick(G_GRP)]); }
+  A.forEach((s, i) => {
+    if (!inB.has(i)) return;
+    const g = giacOf(s);
+    if (s.smax && g < s.smin && R() < .3) s.ord = s.smax - g;   // per alcuni codici sotto scorta il riordino è già partito
+    s.fab = Math.max(0, s.smin - g - s.ord);
+    B.set(s.code, [s.code, R() < .85 ? "V" : pick(["A", "S", "Z"]), s.desc, R() < .92 ? "R" : "Z", g, pick(G_GRP)]);
+  });
+  for (let k = 0; k < nExtra; k++) { const [c, pt] = newCode(); B.set(c, [c, "V", pt[1], "R", R() < .5 ? 0 : ri(1, 3), pick(G_GRP)]); }
   const weeks = [];
   const snap = () => ({ A: A.map(s => [s.dg, s.code, s.desc, s.loc, s.listino, s.costo, s.qv, s.vspc, null, s.ord, s.fab, s.regolarita, s.cons_mese, s.smin, s.smax, s.scad]), B: [...B.values()].map(r => r.slice()) });
   weeks.push(snap());
+  // da un caricamento all'altro passa circa una settimana: arrivano gli ordini, si vende secondo il consumo, si riordina chi scende sotto la SMin
   for (let w = 1; w < o.weeks; w++) {
     for (const s of A) {
-      const g = B.get(s.code);
-      if (s.ord && g && R() < .7) { g[4] += s.ord; s.ord = 0; }
-      if (g && g[4] > 0 && R() < (s.smax ? .35 : .05)) g[4] -= ri(1, Math.min(g[4], 2));
-      if (g && s.smax && g[4] + s.ord < s.smin && R() < .6) s.ord = s.smax - g[4];
-      if (R() < .03) { s.smax = Math.max(0, s.smax + (R() < .5 ? -1 : 1)); s.smin = Math.min(s.smin, s.smax); }
-      s.fab = g ? Math.max(0, s.smin - g[4] - s.ord) : s.smin;
+      const g = B.get(s.code); if (!g) continue;
+      if (s.ord && R() < .7) { g[4] += s.ord; s.ord = 0; }
+      g[4] = Math.max(0, g[4] - poisson(s.cons_mese * 12 / 52));
+      if (s.smax && g[4] + s.ord < s.smin && R() < .6) s.ord = s.smax - g[4];
+      s.fab = Math.max(0, s.smin - g[4] - s.ord);
     }
-    for (const g of B.values()) if (g[4] > 0 && R() < .02) g[4] = 0;
     weeks.push(snap());
   }
   return weeks;
@@ -1550,7 +1563,8 @@ async function viewProva(main) {
     <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
     <li><b>Volumi in euro</b> (facoltativi): il venduto annuo è consumo medio mensile × 12 × prezzo netto di tutti i codici delle liste; il valore a magazzino è giacenza × prezzo netto. La piattaforma adatta le quantità (consumi, SMin, SMax e giacenze) per avvicinarsi agli importi, senza cambiare i prezzi. Con più caricamenti, gli importi valgono per l'ultimo. Lasciati vuoti, i volumi escono da soli in base al numero di codici.</li>
-    <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti, SMin, SMax, consumo medio mensile e indice di regolarità coerenti tra loro. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
+    <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
+    <li><b>Numeri coerenti tra loro</b>: un quarto dei codici non vende da mesi, gli altri vendono in modo molto diverso, i ricambi economici più di quelli costosi. La regolarità segue il consumo (chi vende 0,3 pezzi al mese sta intorno a 3, chi ne vende 3 o più vicino a 12). Un codice è a scorta solo se la sua regolarità supera una soglia che cresce con il costo: 1,6 sotto 20 €, 2,5 fino a 100 €, 3,3 fino a 500 €, 4,3 oltre. SMin = un mese di consumo (almeno 1 pezzo); SMax = SMin + il lotto di riordino, di 3, 2, 1 o mezzo mese di consumo secondo la stessa fascia. «Venduto» è il numero di pezzi degli ultimi 12 mesi; per i codici che non vendono da mesi c'è la data dell'ultima vendita.</li>
     <li>Con più caricamenti, i dati evolvono da uno all'altro: vendite, arrivi degli ordini aperti, riordini e qualche revisione delle scorte. Così si vedono muoversi andamento, indicatori e confronti.</li>
     <li>Ricevi un unico file .zip con due Excel per ogni caricamento: liste movimentazione e giacenze. Caricali in «Nuovo ordine» o in «Carica dati»; con più caricamenti, uno alla volta e in ordine di numero.</li></ul></section>`;
   $("#gf").onsubmit = async e => {
