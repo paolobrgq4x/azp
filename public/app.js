@@ -137,6 +137,7 @@ const VIEWS = [
   { id: "analisi", label: "Analisi codici" },
   { id: "ordine", label: "Scenari d'ordine" },
   { id: "codice", label: "Scheda codice" },
+  { id: "regole", label: "Regole" },
   { id: "carica", label: "Carica dati" },
   { id: "prova", label: "Dati di prova" },
   { id: "admin", label: "Amministrazione", admin: true }
@@ -173,7 +174,7 @@ function route() {
   let view = (location.hash || "#").slice(1);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) view = isAdmin() ? "rete" : "nuovo";
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, andamento: viewAndamento, kpi: viewKpi, analisi: viewAnalisi, ordine: viewOrdine, codice: viewCodice, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, andamento: viewAndamento, kpi: viewKpi, analisi: viewAnalisi, ordine: viewOrdine, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);
@@ -1221,6 +1222,42 @@ async function showCode() {
   const cs = getComputedStyle(document.documentElement);
   lineChart($("#cc"), d.rows.map(r => ({ y: r.giac, label: dShort(r.week_date), full: snapLabel(r.week_date, r.uploaded_at) })),
     { title: `Giacenza per caricamento (SMin ${fmtN(last.smin)} · SMax ${fmtN(last.smax)} nell'ultimo)`, color: cs.getPropertyValue("--accent").trim(), fmt: v => fmtN(v) + " pz", axis: v => fmtN(v) });
+}
+
+/* ============ Regole di approvvigionamento (pagina di sola lettura) ============ */
+async function viewRegole(main) {
+  const r = rules(), modes = Object.keys(SCENARI);
+  main.innerHTML = `<div class="head"><div><h1>Regole di approvvigionamento</h1><p class="sub">Come la piattaforma classifica i codici e calcola le quantità da ordinare nei tre scenari.</p></div></div>
+  <section class="panel rules"><h3>Le basi</h3><ul>
+    <li><b>Disponibile</b> = giacenza + ordini aperti.</li>
+    <li><b>Vendita regolare</b> = consumo medio mensile × indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99; un valore più alto nel file conta come 11,99. Se nei dati manca l'indice, conta solo il consumo medio.</li>
+    <li><b>Sempre esclusi</b> dagli scenari: i codici non tenuti a scorta (SMin e SMax a zero), i fermi, quelli senza storico e quelli segnati come «su richiesta».</li></ul></section>
+  <section class="panel rules"><h3>Come viene classificato ogni codice</h3><ul>
+    <li><b>Sotto scorta</b>: disponibile sotto la SMin. <b>A zero</b>: disponibile a zero con SMin sopra zero; nella tabella della proposta compaiono in cima.</li>
+    <li><b>Eccesso</b>: giacenza sopra la SMax; l'eccedenza è valorizzata al costo. <b>Fermo</b>: giacenza con SMin e SMax a zero.</li>
+    <li><b>In linea</b>: tra SMin e SMax. <b>Non in giacenza</b>: codice delle liste assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nelle liste.</li></ul></section>
+  <section class="panel rules"><h3>A. ${esc(SCENARI.cover.t)} (1, 2 o 3 mesi)</h3><ul>
+    <li>Obiettivo di ogni codice = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax.</li>
+    <li>Si ordina obiettivo − disponibile. Non c'è un importo: la spesa è il risultato.</li></ul></section>
+  <section class="panel rules"><h3>B. ${esc(SCENARI.amount.t)} (entro SMin e SMax)</h3><ol>
+    <li><b>SMin</b>: prima si riportano alla SMin i codici che sono sotto. Se l'importo non basta, passano prima quelli con la regolarità più alta e, a parità, con il consumo più alto.</li>
+    <li><b>Proporzione</b>: il resto compra a tutti lo stesso numero di mesi di vendita regolare. Chi vende di più e con più continuità riceve più pezzi.</li>
+    <li><b>SMax</b>: chi arriva alla SMax si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, il resto non si spende e la piattaforma dice quanto.</li></ol></section>
+  <section class="panel rules"><h3>C. ${esc(SCENARI.free.t)} (anche oltre la SMax)</h3><ul>
+    <li>Come B; quello che B lascerebbe non speso va oltre la SMax con la stessa proporzione: ogni codice riceve gli stessi mesi in più di vendita regolare.</li>
+    <li>La SMax viene superata solo dopo che tutti i codici ci sono arrivati.</li>
+    <li>Limite facoltativo: da 1 a 6 mesi di consumo medio sopra la SMax per codice. Con il limite, quello che non trova posto resta non speso.</li></ul></section>
+  <section class="panel rules"><h3>Pezzi interi</h3><ul>
+    <li>I pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'avanzo non basta per un pezzo di un codice si passa agli altri: per questo negli scenari a importo possono restare pochi euro.</li></ul></section>
+  <section class="panel rules"><h3>Regole che ogni utente può cambiare</h3><ul>
+    <li><b>Correzione del consumo medio</b>, da −20% a +20%, per stagionalità o andamento.</li>
+    <li><b>Arrotondamento</b> nello scenario a periodo: al pezzo più vicino, per eccesso o per difetto; si possono anche escludere le righe sotto un valore minimo.</li>
+    <li><b>Esclusioni</b>: codici su richiesta e soglia minima di consumo medio.</li>
+    <li><b>Avviso</b> sulle righe che dopo l'ordine superano un certo numero di mesi di copertura (di base 3).</li>
+    <li>Si cambiano dal pannello «Regole di riordino» sopra ogni proposta, in «Nuovo ordine» e in «Scenari d'ordine»; restano salvate per il tuo utente.</li></ul></section>
+  <section class="panel"><h3>Le tue regole adesso</h3><ul class="small">${modes.map(m => `<li><b>${esc(SCENARI[m].t)}</b>: ${esc(rulesText(r, m))}</li>`).join("")}</ul></section>
+  <section class="panel rules"><h3>Dopo il calcolo</h3><ul>
+    <li>Ogni quantità della proposta si apre per vedere il conto passo passo. Ogni riga si accetta o si rifiuta; l'ordine confermato si scarica in Excel o PDF.</li></ul></section>`;
 }
 
 /* ============ Caricamento dei dati ============ */
