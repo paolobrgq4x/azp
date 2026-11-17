@@ -606,7 +606,7 @@ const FILTRI = [
 const FILTRI2 = [["nuovi", "Nuovi problemi rispetto al caricamento precedente"], ["cronici", "Eccesso o fermo da 4+ caricamenti"]];
 const FILTRI3 = [["ondemand", "Su richiesta"]];
 const ACOLS = [
-  ["status", "Stato"], ["code", "Codice"], ["descr", "Descrizione"], ["loc", "Locaz."], ["giac", "Giacenza", 1], ["var", "Var. sett.", 1],
+  ["status", "Stato"], ["code", "Codice"], ["descr", "Descrizione"], ["loc", "Locaz."], ["giac", "Giacenza", 1], ["var", "Var. giacenza", 1],
   ["ord", "Ord. aperti", 1], ["smin", "SMin", 1], ["smax", "SMax", 1], ["delta", "Da ordinare / Eccedenza", 1],
   ["streak", "Caricamenti nello stato", 1], ["cost", "Costo unit.", 1], ["val_giac", "Valore giacenza", 1], ["val_action", "Valore azione", 1]
 ];
@@ -674,7 +674,7 @@ async function exportXls() {
     const snap = state.snapshots.find(s => s.id === A.snapId);
     const rows = data.rows.map(r => ({
       "Stato": STATI[r.status], "Codice": r.code, "Descrizione": r.descr, "Locazione": r.loc, "DG": r.dg, "Giacenza": r.giac,
-      "Giacenza sett. prec.": r.prev_giac, "Ordini aperti": r.ord, "SMin": r.smin, "SMax": r.smax, "Da ordinare (+) / Eccedenza (-)": r.delta,
+      "Giacenza caricamento precedente": r.prev_giac, "Ordini aperti": r.ord, "SMin": r.smin, "SMax": r.smax, "Da ordinare (+) / Eccedenza (-)": r.delta,
       "Caricamenti nello stato": r.streak, "Costo unitario": r.cost, "Valore giacenza": Math.round(r.val_giac * 100) / 100, "Valore azione": Math.round(r.val_action * 100) / 100,
       "Presente in giacenza": r.in_b ? "Sì" : "No"
     }));
@@ -909,7 +909,7 @@ function moveCells(l) {
   const v = l.prev_giac == null ? null : l.giac - l.prev_giac;
   return `<td class="num">${l.qty_sold != null ? fmtN(l.qty_sold) : "–"}${l.ven_spc ? `<span class="sub">spec. ${fmtN(l.ven_spc)}</span>` : ""}</td>
         <td class="num">${l.last_sale ? esc(dIt(l.last_sale)) : "–"}</td>
-        <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.cons_eff != null && l.cons_mese && Math.abs(l.cons_eff - l.cons_mese) > 1e-9 ? `<span class="sub">considerato ${fmtN(l.cons_eff, 2)}</span>` : ""}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 1)}</span>` : ""}</td>
+        <td class="num">${l.cons_mese ? fmtN(l.cons_mese, 2) : "–"}${l.cons_eff != null && l.cons_mese && Math.abs(l.cons_eff - l.cons_mese) > 1e-9 ? `<span class="sub">considerato ${fmtN(l.cons_eff, 2)}</span>` : ""}${l.regolarita ? `<span class="sub">regolarità ${fmtN(l.regolarita, 2)}</span>` : ""}</td>
         <td class="num">${v == null ? "–" : v === 0 ? "=" : (v > 0 ? "+" : "") + fmtN(v)}${l.prev_giac != null ? `<span class="sub">prima ${fmtN(l.prev_giac)}</span>` : ""}</td>`;
 }
 const MOVE_TH = `<th class="num" title="Quantità venduta di recente indicata nella lista movimentazione">Venduto recente</th><th class="num" title="Data dell'ultima vendita indicata nella lista movimentazione">Ultima vendita</th><th class="num" title="Consumo medio mensile in pezzi indicato nella lista movimentazione. Sotto: indice di regolarità delle vendite, da 0 a 11,99">Consumo/mese</th><th class="num" title="Variazione della giacenza rispetto al caricamento precedente">Var. giacenza</th>`;
@@ -968,12 +968,12 @@ function renderDecision(host, R, recalc, sel = "#ores") {
     </div>
     <div class="bar"><div class="chips" role="group" aria-label="Filtra le righe">${filters.map(([k, l]) => `<button type="button" class="chip" data-df="${k}" aria-pressed="${R.decFilter === k}">${l}<span class="n">${fmtN(cnt[k])}</span></button>`).join("")}</div>
       <div class="row"><button class="btn sm" type="button" data-bulk="okNoAlert">Sì a tutte senza avviso</button><button class="btn sm" type="button" data-bulk="noAlert">No a tutte con avviso</button><button class="btn sm" type="button" data-bulk="allSi">Sì a tutte</button><button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
-    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Proposta</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th></th><th>Accetto</th></tr></thead><tbody>
+    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Proposta</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th></th><th>Accetto</th></tr></thead><tbody>
       ${vis.slice(0, R.decShow).map(({ l, al, d }) => `<tr class="${d ? "d-" + d : ""}${al.length ? " has-al" : ""}"><td class="num muted">${l.rank}</td>
         <td class="code"><button type="button" data-c="${esc(l.code)}">${esc(l.code)}</button></td>
         <td class="desc" title="${esc(l.reasons.join(", "))}">${esc(l.descr)}</td>
         <td class="small">${esc(grpTxt(l))}${l.dg ? `<span class="sub">DG ${esc(l.dg)}</span>` : ""}</td>
-        <td class="num">${fmtN(l.giac)}</td><td class="num">${l.ord ? fmtN(l.ord) : "–"}</td>
+        <td class="num">${fmtN(l.giac)}</td><td class="num">${l.ord ? fmtN(l.ord) : "–"}</td><td class="num">${fmtN(l.smin)}</td><td class="num">${fmtN(l.smax)}</td>
         ${moveCells(l)}
         <td class="num">${l.listino != null ? fmtE2(l.listino) : "–"}</td><td class="num">${fmtE2(l.cost)}</td>
         <td class="num">${covTxt(l.cover_before)}${l.cover_before != null ? " mesi" : ""}</td>
@@ -981,7 +981,7 @@ function renderDecision(host, R, recalc, sel = "#ores") {
         <td class="num">${covTxt(l.cover_after)}${l.cover_after != null ? " mesi" : ""}</td>
         <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(al[0].startsWith("Nessuna") ? "Senza domanda" : "Oltre " + fmtN(th) + " mesi")}</span>` : ""}</td>
         <td><button class="link small" type="button" data-od="${esc(l.code)}" title="Escludi questo codice da tutti gli scenari">su richiesta</button></td>
-        <td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td></tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="19"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
+        <td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td></tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="21"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
     </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
     <div class="decexp"><div class="small muted" id="dexpmsg">${cnt.todo ? `Mancano <b>${fmtN(cnt.todo)}</b> righe da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${fmtN(cnt.si)} righe, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
       <div class="row"><button class="btn primary" type="button" id="dxls"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in Excel</button><button class="btn primary" type="button" id="dpdf"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in PDF</button><button class="btn" type="button" id="oxls">Proposta completa in Excel</button></div></div>`;
@@ -1014,8 +1014,8 @@ function renderDecision(host, R, recalc, sel = "#ores") {
 function confirmedRows(rows) {
   const th = rules().alertMonths;
   return rows.filter(r => r.d === "si").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "DG": l.dg || "",
-    "Giacenza attuale": l.giac, "Ordini aperti": l.ord, "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "",
-    "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-12)": l.regolarita || "", "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
+    "Giacenza attuale": l.giac, "Ordini aperti": l.ord, "SMin": l.smin, "SMax": l.smax, "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "",
+    "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-11,99)": l.regolarita || "", "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost,
     "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità": l.qty,
     "Valore netto": Math.round(l.value * 100) / 100, "Valore listino": l.listino != null ? Math.round(l.listino * l.qty * 100) / 100 : "",
@@ -1048,14 +1048,14 @@ function exportConfirmedPdf(R, rows) {
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
-  const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac),
+  const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax),
     [l.qty_sold != null ? fmtN(l.qty_sold) : "", l.last_sale ? dIt(l.last_sale) : ""].filter(Boolean).join(" · ") || "–", l.listino != null ? fmtE2(l.listino) : "–", fmtE2(l.cost),
     covTxt(l.cover_before), fmtN(l.qty), fmtE2(l.value), covTxt(l.cover_after), al.length ? (al[0].startsWith("Nessuna") ? "Senza domanda" : `Oltre ${fmtN(th)} mesi`) : ""]);
   doc.autoTable({
-    startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
-    foot: [["Totale", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
+    startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "SMin", "SMax", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
+    foot: [["Totale", "", "", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
     styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
-    columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 48 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right", fontStyle: "bold" }, 9: { halign: "right" }, 10: { halign: "right" }, 11: { textColor: [198, 40, 40] } },
+    columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 44 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right" }, 10: { halign: "right", fontStyle: "bold" }, 11: { halign: "right" }, 12: { halign: "right" }, 13: { textColor: [198, 40, 40] } },
     alternateRowStyles: { fillColor: [247, 249, 250] }, margin: { left: 14, right: 14 },
     didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Incrocio giacenze ricambi", 14, doc.internal.pageSize.getHeight() - 8); }
   });
@@ -1068,7 +1068,7 @@ function exportProposalXls(R) {
   const rows = R.lines.map(l => ({ "Priorità": l.rank, "Codice": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "Classe ABC": l.cls === "N" ? "" : l.cls, "DG": l.dg, "Locazione": l.loc,
     "Stato": l.tier === 1 ? "A zero" : STATI[l.status], "Giacenza": l.giac, "Ordini aperti": l.ord, "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
     "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "", "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "",
-    "SMin": l.smin, "SMax": l.smax, "Consumo medio mensile": l.cons_mese, "Regolarità vendite (0-12)": l.regolarita, "Vendita regolare (pz/mese)": Math.round((l.vr || 0) * 100) / 100,
+    "SMin": l.smin, "SMax": l.smax, "Consumo medio mensile": l.cons_mese, "Regolarità vendite (0-11,99)": l.regolarita, "Vendita regolare (pz/mese)": Math.round((l.vr || 0) * 100) / 100,
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost, "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità proposta": l.qty,
     "Parziale": l.partial ? "Sì" : "", "Copertura dopo (mesi)": l.cover_after == null ? "" : Math.round(l.cover_after * 10) / 10,
     "Valore netto": Math.round(l.value * 100) / 100, "Cumulato": Math.round(l.cum * 100) / 100, "Motivo": l.reasons.join(", "), "Come è calcolata": whyText(l), "Decisione": R.dec && R.dec[l.code] ? (R.dec[l.code] === "si" ? "Sì" : "No") : "" }));
