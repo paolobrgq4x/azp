@@ -72,7 +72,7 @@ function infoBox(title, html) {
 const state = {
   me: null, dealers: [], dealerId: null, snapshots: [],
   analisi: { snapId: null, f: "tutti", q: "", sort: null, dir: "asc", offset: 0, limit: 200 },
-  codice: "", upload: { A: [], B: [], week: mondayISO() }, kpiSnap: null, ordine: { snapId: null, mode: "amount", budget: 50000, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
+  codice: "", upload: { A: [], B: [], week: mondayISO() }, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
 };
 const STATI = { sotto: "Sotto scorta", eccesso: "Eccesso", fermo: "Fermo", ok: "In linea", nostorico: "Senza storico" };
 const isAdmin = () => state.me && state.me.user.role === "admin";
@@ -307,14 +307,16 @@ function whyHtml(l) {
 }
 function whyText(l) { const t = document.createElement("div"); t.innerHTML = whyHtml(l); return [...t.querySelectorAll("li")].map(x => x.textContent).join(" "); }
 const W = { step: 1, snapId: null, codesMode: "all", codes: [], lookup: null, listName: "", groups: [], abc: [],
-  purpose: "cover", budget: 50000, listOverride: true, seq: 0 };
+  purpose: "cover", budgets: { amount: 50000, free: 50000 }, listOverride: true, seq: 0 };
+// ogni scenario a importo ha il suo importo: cambiarne uno non tocca l'altro
+const wBudget = () => W.budgets[W.purpose] || 0;
 async function viewNuovo(main) {
   if (needDealer(main)) return;
   if (!state.snapshots.length) await loadSnapshots();
   if (W.dealer !== state.dealerId) { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [] }); W.dealer = state.dealerId; state.ordine.history = []; }
   main.innerHTML = `<div class="head"><div><h1>Nuovo ordine</h1><p class="sub">${esc(dealerName(state.dealerId))}. Scegli l'obiettivo, carica i dati della settimana, scegli i codici e ottieni il risultato.</p></div></div>
     <ol class="stepper" aria-label="Avanzamento">${WSTEPS.map((t, k) => `<li class="${k + 1 < W.step ? "done" : k + 1 === W.step ? "cur" : ""}"${k + 1 === W.step ? ' aria-current="step"' : ""}><span class="sn">${k + 1 < W.step ? "✓" : k + 1}</span><span class="st">${t}</span></li>`).join("")}</ol>
-    ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(SCENARI[W.purpose].t)}</b> · ${esc(W.purpose === "cover" ? orizzLabel(rules().months) : fmtE(W.budget))} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
+    ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(SCENARI[W.purpose].t)}</b> · ${esc(W.purpose === "cover" ? orizzLabel(rules().months) : fmtE(wBudget()))} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
     <div id="wbody"></div>`;
   if ($("#wchg")) $("#wchg").onclick = () => wGo(main, 1);
   ({ 1: wStep1, 2: wStep2, 3: wStep3, 4: wStep4, 5: wStep5 })[W.step]($("#wbody"), main);
@@ -323,7 +325,7 @@ const wGo = (main, n) => { W.step = n; viewNuovo(main); window.scrollTo(0, 0); }
 
 function wStep1(body, main) {
   const card = (id, inner) => `<label class="choice big${W.purpose === id ? " on" : ""}" for="pp_${id}"><input type="radio" name="pp" id="pp_${id}" value="${id}"${W.purpose === id ? " checked" : ""}><span><b>${SCENARI[id].t}</b><span class="small muted">${SCENARI[id].d}</span><span class="pin">${inner}</span></span></label>`;
-  const amount = id => `<input type="text" id="pt_${id}" data-amt="${id}" inputmode="decimal" aria-label="Importo da ordinare in euro" value="${esc(fmtN(W.budget))}"><span class="small muted">€</span>`;
+  const amount = id => `<input type="text" id="pt_${id}" data-amt="${id}" inputmode="decimal" aria-label="Importo da ordinare in euro" value="${esc(fmtN(W.budgets[id]))}"><span class="small muted">€</span>`;
   body.innerHTML = `<section class="panel"><span class="num mono small muted">PASSO 1 DI 5</span><h2>Qual è l'obiettivo?</h2>
     <div class="choices">
       ${card("cover", `<label class="small muted" for="hm">Periodo</label><select id="hm" aria-label="Periodo da coprire">${ORIZZ.map(([v, l]) => `<option value="${v}"${v === rules().months ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
@@ -345,13 +347,13 @@ function wStep1(body, main) {
   $("#hm").addEventListener("focus", () => pick("cover"));
   $$("[data-amt]", body).forEach(i => {
     i.addEventListener("focus", () => pick(i.dataset.amt));
-    i.oninput = () => $$("[data-amt]", body).forEach(o => { if (o !== i) o.value = i.value; });
+    i.oninput = () => { W.budgets[i.dataset.amt] = parseNum(i.value); };
   });
   extra();
   $("#wnext").onclick = () => {
     if (W.purpose !== "cover") {
-      W.budget = parseNum($("#pt_" + W.purpose).value);
-      if (!(W.budget > 0)) { toast("Indica un importo maggiore di zero."); return; }
+      W.budgets[W.purpose] = parseNum($("#pt_" + W.purpose).value);
+      if (!(wBudget() > 0)) { toast("Indica un importo maggiore di zero."); return; }
       if ($("#pmc")) { rules().maxCover = +$("#pmc").value; saveRules(); }
     }
     W.result = null; wGo(main, 2);
@@ -465,12 +467,12 @@ async function wCompute() {
   const codes = W.codesMode === "all" ? [] : W.lookup.rows.map(r => r.code);
   const mode = SCENARI[W.purpose] ? W.purpose : "cover";
   const RR = rules(), seq = ++W.seq;
-  const P = { mode, budget: mode === "cover" ? 0 : W.budget, months: RR.months, maxCover: RR.maxCover, minDemand: RR.minDemand, listOverride: W.listOverride, rules: RR,
+  const P = { mode, budget: mode === "cover" ? 0 : wBudget(), months: RR.months, maxCover: RR.maxCover, minDemand: RR.minDemand, listOverride: W.listOverride, rules: RR,
     filters: { groups: [...W.groups], abc: [...W.abc], dg: [], q: "", codes } };
   const r = await api("POST", `/api/snapshots/${W.snapId}/scenario`, P);
   if (seq !== W.seq) return false;   // nel frattempo è partito un calcolo più recente
   const scope = [codes.length ? `${fmtN(codes.length)} codici scelti` : "", W.groups.length ? "gruppi " + W.groups.join(", ") : "", W.abc.length ? "classe " + W.abc.join("/") : ""].filter(Boolean).join(" · ");
-  r.title = `${SCENARI[mode].t} · ${mode === "cover" ? orizzLabel(RR.months) : fmtE(W.budget)}${mode === "free" && RR.maxCover ? ` (copertura massima ${fmtM(RR.maxCover)} mesi)` : ""}${scope ? " · " + scope : ""}`;
+  r.title = `${SCENARI[mode].t} · ${mode === "cover" ? orizzLabel(RR.months) : fmtE(wBudget())}${mode === "free" && RR.maxCover ? ` (copertura massima ${fmtM(RR.maxCover)} mesi)` : ""}${scope ? " · " + scope : ""}`;
   r.horizonWeeks = mode === "cover" ? Math.max(2, Math.round(RR.months * 4.33)) : null;
   const O = state.ordine;
   O.result = r; O.show = 100; O.history = [{ title: r.title, s: r.summary, r }].concat((O.history || []).filter(h => h.title !== r.title)).slice(0, 8);
@@ -745,7 +747,7 @@ async function viewOrdine(main) {
   const snaps = state.snapshots.length ? state.snapshots : await loadSnapshots();
   if (!snaps.length) return noWeeks(main);
   const O = state.ordine;
-  O.mode = SCENARI[O.mode] ? O.mode : "amount"; O.filters = O.filters || { groups: [], abc: [], dg: [], q: "" }; O.filters.codes = O.filters.codes || []; O.listOverride = O.listOverride !== false;
+  O.mode = SCENARI[O.mode] ? O.mode : "amount"; O.budgets = O.budgets || { amount: 50000, free: 50000 }; O.filters = O.filters || { groups: [], abc: [], dg: [], q: "" }; O.filters.codes = O.filters.codes || []; O.listOverride = O.listOverride !== false;
   O.history = O.history || []; O.seq = O.seq || 0;
   if (!snaps.some(s => s.id === O.snapId)) { O.snapId = snaps[snaps.length - 1].id; O.result = null; O.meta = null; O.history = []; }
   if (!O.meta || O.metaSnap !== O.snapId) { O.meta = await api("GET", `/api/snapshots/${O.snapId}/filters`); O.metaSnap = O.snapId; }
@@ -792,7 +794,7 @@ async function viewOrdine(main) {
     <li><b>Pezzi interi</b>: i pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'importo rimasto non basta per un pezzo di un codice si passa agli altri: per questo può avanzare qualche euro.</li>
     <li><b>Codici su richiesta</b>: sono esclusi quelli segnati a mano dal responsabile e, se imposti una soglia, quelli con consumo medio troppo basso.</li></ul></section>`;
   const renderParams = () => {
-    const p = $("#params"), amount = `<label class="field" for="ob">Importo in euro<input type="text" id="ob" inputmode="decimal" value="${esc(fmtN(O.budget))}"></label>
+    const p = $("#params"), amount = `<label class="field" for="ob">Importo in euro<input type="text" id="ob" inputmode="decimal" value="${esc(fmtN(O.budgets[O.mode]))}"></label>
       <div class="chips">${[10000, 25000, 50000, 100000].map(v => `<button class="chip" type="button" data-b="${v}">${fmtE(v)}</button>`).join("")}</div>`;
     if (O.mode === "cover") p.innerHTML = `<label class="field" for="om">Periodo da coprire<select id="om">${ORIZZ.map(([v, l]) => `<option value="${v}"${v === rules().months ? " selected" : ""}>${l}</option>`).join("")}</select></label>`;
     else if (O.mode === "free") p.innerHTML = `${amount}<label class="field" for="omc">Copertura massima per codice oltre la SMax<select id="omc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === rules().maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>`;
@@ -803,7 +805,7 @@ async function viewOrdine(main) {
     if ($("#omc")) $("#omc").onchange = e => { rules().maxCover = +e.target.value; saveRules(); };
   };
   const readParams = () => {
-    if ($("#ob")) O.budget = parseNum($("#ob").value);
+    if ($("#ob")) O.budgets[O.mode] = parseNum($("#ob").value);
     F.q = $("#fq").value.trim();
     F.codes = splitCodes($("#lpaste").value); O.listOverride = $("#lover").checked;
   };
@@ -834,9 +836,9 @@ async function viewOrdine(main) {
   $("#ow").onchange = e => { O.snapId = +e.target.value; O.result = null; O.history = []; viewOrdine(main); };
   $("#of").onsubmit = async e => {
     e.preventDefault(); readParams(); renderParams();   // i menu di periodo e copertura seguono le regole, anche se cambiate dal pannello
-    if (O.mode !== "cover" && !(O.budget > 0)) { toast("Indica un importo maggiore di zero."); return; }
+    if (O.mode !== "cover" && !(O.budgets[O.mode] > 0)) { toast("Indica un importo maggiore di zero."); return; }
     const RR = rules(), seq = ++O.seq;
-    const P = { mode: O.mode, budget: O.mode === "cover" ? 0 : O.budget, months: RR.months, maxCover: RR.maxCover, minDemand: RR.minDemand, listOverride: O.listOverride, rules: RR,
+    const P = { mode: O.mode, budget: O.mode === "cover" ? 0 : O.budgets[O.mode], months: RR.months, maxCover: RR.maxCover, minDemand: RR.minDemand, listOverride: O.listOverride, rules: RR,
       filters: { groups: [...F.groups], abc: [...F.abc], dg: [...F.dg], q: F.q, codes: [...F.codes] } };
     $("#ores").innerHTML = `<div class="panel"><p class="muted">Calcolo in corso…</p></div>`;
     try {
