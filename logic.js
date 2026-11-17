@@ -150,7 +150,7 @@ function filterValues(items) {
  *     quello che resta non viene speso.
  *
  * free: come amount; l'importo che amount lascerebbe non speso sale oltre la SMax con la regola del passo 2, contando i mesi
- *       a partire dalla SMax (chi è già sopra la SMax parte in ritardo). Limite facoltativo: mesi di copertura massima per codice.
+ *       a partire dalla SMax (chi è già sopra la SMax parte in ritardo). Limite facoltativo: da 1 a 6 mesi di consumo sopra la SMax per codice.
  *
  * Ordine delle righe: prima i codici che erano sotto la SMin, poi regolarità più alta e, a parità, consumo più alto.
  * Filtri: gruppo principale, DG, classe ABC, testo su codice o descrizione, elenco di codici.
@@ -159,7 +159,7 @@ function filterValues(items) {
 const REG_MAX = 11.99;
 const MODES = ["cover", "amount", "free"];
 const MONTHS = [1, 2, 3];
-const MAX_COVER = [0, 3, 4, 6, 9, 12, 18, 24];   // 0 = nessun limite
+const MAX_COVER = [0, 1, 2, 3, 4, 5, 6];   // mesi di consumo oltre la SMax; 0 = nessun limite
 
 /* Coda con priorità (heap binario): in cima la voce con il livello più basso. */
 function heapPush(h, x, less) {
@@ -325,7 +325,7 @@ function scenario(items, p) {
     if (mode === "free" && s2.full && left >= 0.01) {
       const E3 = cands.map(c => {
         const have = c.disp + got(c);
-        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: maxCover ? Math.max(0, Math.floor(maxCover * c.cons_eff + 1e-9) - have) : Infinity };
+        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: maxCover ? Math.max(0, Math.floor(c.top + maxCover * c.cons_eff + 1e-9) - have) : Infinity };
       });
       const s3 = spread(E3, left, byReg);
       left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null };
@@ -377,7 +377,7 @@ function scenario(items, p) {
  * minDemand    escludi i codici con consumo medio sotto questa soglia (pezzi al mese)
  * exclOnDemand escludi i codici segnati come su richiesta
  * minLine      escludi le righe di valore inferiore (euro, scenario a periodo)
- * maxCover     importo libero: mesi di copertura massima per codice (0 = nessun limite)
+ * maxCover     importo libero: al massimo SMax + maxCover mesi di consumo per codice (da 1 a 6; 0 = nessun limite)
  * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
 const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3 };
 const cleanCover = v => (MAX_COVER.includes(+v) ? +v : 0);

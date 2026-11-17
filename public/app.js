@@ -195,7 +195,8 @@ window.addEventListener("hashchange", route);
  */
 const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze", "Codici", "Risultato"];
 const ORIZZ = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"]];
-const COVER_MAX = [[0, "nessun limite"], [3, "3 mesi"], [4, "4 mesi"], [6, "6 mesi"], [9, "9 mesi"], [12, "12 mesi"], [18, "18 mesi"], [24, "24 mesi"]];
+const COVER_MAX = [[0, "nessun limite"], [1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"], [4, "4 mesi"], [5, "5 mesi"], [6, "6 mesi"]];
+const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
 const SCENARI = {
   cover: { t: "Acquisti per coprire un periodo", s: "Copro un periodo", d: "Ordino quanto serve per coprire 1, 2 o 3 mesi di vendite. Nessun codice resta sotto la SMin e nessuno supera la SMax." },
   amount: { t: "Acquisti per un importo", s: "Spendo un importo", d: "Spendo una cifra: prima riporto alla SMin i codici che sono sotto, poi divido il resto in proporzione alle vendite regolari. Nessun codice supera la SMax." },
@@ -224,7 +225,7 @@ function rulesText(r, mode) {
   const parts = [];
   if (mode === "cover") parts.push(`periodo ${orizzLabel(r.months)}`);
   parts.push(mode === "free" ? "SMin rispettata, SMax superabile" : "SMin e SMax rispettate");
-  if (mode === "free") parts.push(r.maxCover ? `copertura massima ${fmtM(r.maxCover)} mesi` : "nessun limite di copertura");
+  if (mode === "free") parts.push(r.maxCover ? `al massimo ${oltreTxt(r.maxCover)}` : "nessun limite oltre la SMax");
   parts.push(r.consAdj ? `consumo ${pctTxt(r.consAdj)}` : "consumo come da lista");
   if (mode === "cover") parts.push(`arrotondamento ${ROUND_L[r.round]}`);
   const ex = ["non a scorta", r.exclOnDemand ? "su richiesta" : "", r.minDemand ? `consumo sotto ${fmtN(r.minDemand, 2)} pz/mese` : "", r.minLine && mode === "cover" ? `righe sotto ${fmtE(r.minLine)}` : ""].filter(Boolean);
@@ -243,7 +244,7 @@ function renderRules(host, mode, onChange) {
         : "Sono rispettate: nessun codice resta sotto la SMin e nessuno supera la SMax. Per andare oltre la SMax serve lo scenario «" + SCENARI.free.t + "»."}</p></div>
       ${cov ? `<div class="rctl"><span class="rl">Periodo da coprire</span>${seg("months", r.months, ORIZZ)}</div>` : ""}
       ${free ? `<div class="rctl"><label for="r_mc" class="rl">Copertura massima per codice oltre la SMax</label><select id="r_mc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === r.maxCover ? " selected" : ""}>${l}</option>`).join("")}</select>
-        <span class="small muted">Facoltativa. Con un limite, l'importo che non trova posto resta non speso.</span></div>` : ""}
+        <span class="small muted">Facoltativa: mesi di consumo medio che ogni codice può avere in più sopra la SMax. Con un limite, l'importo che non trova posto resta non speso.</span></div>` : ""}
       <div class="rctl"><label for="r_c">Correzione del consumo medio <b id="r_cv">${r.consAdj ? pctTxt(r.consAdj) : "nessuna"}</b></label>
         <input type="range" id="r_c" min="-50" max="50" step="5" value="${r.consAdj}"><span class="small muted">Per stagionalità o andamento: −20% se il periodo è più lento, +20% se è più vivace.</span></div>
       ${cov ? `<div class="rctl"><span class="rl">Arrotondamento del consumo del periodo</span>${seg("round", r.round, [["nearest", "Al più vicino"], ["up", "Per eccesso"], ["down", "Per difetto"]])}</div>` : ""}
@@ -295,7 +296,7 @@ function whyHtml(l) {
     }
     if (p3 && c.level3 != null) {
       const ideal = Math.max(0, c.level3 * c.vr - p3.off), whole = Math.min(p3.qty, Math.floor(ideal + 1e-9)), more = p3.qty - whole;
-      li.push(`Oltre la SMax: il resto dell'importo ha comprato a tutti altri ${n3(c.level3)} mesi di vendita regolare. Per questo codice ${n3(c.level3)} × ${n2(c.vr)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${n2(ideal)}, cioè <b>${pezzi(whole)}</b> ${whole === 1 ? "intero" : "interi"}${p3.capped ? `: si ferma al limite di ${mesi(c.limit)} di copertura` : more > 0 ? `, più <b>${pezzi(more)}</b> con l'avanzo dell'importo` : ""}.`);
+      li.push(`Oltre la SMax: il resto dell'importo ha comprato a tutti altri ${n3(c.level3)} mesi di vendita regolare. Per questo codice ${n3(c.level3)} × ${n2(c.vr)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${n2(ideal)}, cioè <b>${pezzi(whole)}</b> ${whole === 1 ? "intero" : "interi"}${p3.capped ? `: si ferma al limite di ${oltreTxt(c.limit)}` : more > 0 ? `, più <b>${pezzi(more)}</b> con l'avanzo dell'importo` : ""}.`);
     }
   } else {
     li.push(`Disponibile: ${fmtN(l.disp)} (giacenza ${fmtN(l.giac)} + ordini aperti ${fmtN(l.ord)}); SMin ${fmtN(l.smin)}, SMax ${fmtN(l.smax)}.`);
@@ -338,7 +339,7 @@ function wStep1(body, main) {
     $$(".choice", body).forEach(l => l.classList.toggle("on", $("input", l).checked));
     $("#pextra").innerHTML = W.purpose === "free"
       ? `<label class="field" for="pmc">Copertura massima per codice oltre la SMax (facoltativa)<select id="pmc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === rules().maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-         <p class="small muted">La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Senza limite l'importo viene speso tutto; con un limite, quello che non trova posto resta non speso.</p>`
+         <p class="small muted">La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Il limite è in mesi di consumo medio sopra la SMax: con 2 mesi, un codice che vende 3 pezzi al mese può avere al massimo 6 pezzi oltre la SMax. Senza limite l'importo viene speso tutto; con un limite, quello che non trova posto resta non speso.</p>`
       : `<p class="small muted">${W.purpose === "cover" ? "Il risultato propone le quantità che coprono il periodo, da confermare riga per riga, con la spalmatura settimanale." : "Se tutti i codici arrivano alla SMax prima che l'importo sia finito, il resto non viene speso e la piattaforma dice quanto."}</p>`;
   };
   const pick = id => { const r = $("#pp_" + id); if (!r.checked) { r.checked = true; W.purpose = id; extra(); } };
@@ -472,7 +473,7 @@ async function wCompute() {
   const r = await api("POST", `/api/snapshots/${W.snapId}/scenario`, P);
   if (seq !== W.seq) return false;   // nel frattempo è partito un calcolo più recente
   const scope = [codes.length ? `${fmtN(codes.length)} codici scelti` : "", W.groups.length ? "gruppi " + W.groups.join(", ") : "", W.abc.length ? "classe " + W.abc.join("/") : ""].filter(Boolean).join(" · ");
-  r.title = `${SCENARI[mode].t} · ${mode === "cover" ? orizzLabel(RR.months) : fmtE(wBudget())}${mode === "free" && RR.maxCover ? ` (copertura massima ${fmtM(RR.maxCover)} mesi)` : ""}${scope ? " · " + scope : ""}`;
+  r.title = `${SCENARI[mode].t} · ${mode === "cover" ? orizzLabel(RR.months) : fmtE(wBudget())}${mode === "free" && RR.maxCover ? ` (al massimo ${oltreTxt(RR.maxCover)})` : ""}${scope ? " · " + scope : ""}`;
   r.horizonWeeks = mode === "cover" ? Math.max(2, Math.round(RR.months * 4.33)) : null;
   const O = state.ordine;
   O.result = r; O.show = 100; O.history = [{ title: r.title, s: r.summary, r }].concat((O.history || []).filter(h => h.title !== r.title)).slice(0, 8);
@@ -732,7 +733,7 @@ function codesFromWorkbook(wb) {
   return best.codes;
 }
 function describeScenario(P) {
-  const parts = [`${SCENARI[P.mode].t} · ${P.mode === "cover" ? orizzLabel(P.months) : fmtE(P.budget)}${P.mode === "free" && P.maxCover ? ` (copertura massima ${fmtM(P.maxCover)} mesi)` : ""}`];
+  const parts = [`${SCENARI[P.mode].t} · ${P.mode === "cover" ? orizzLabel(P.months) : fmtE(P.budget)}${P.mode === "free" && P.maxCover ? ` (al massimo ${oltreTxt(P.maxCover)})` : ""}`];
   const F = P.filters;
   if (F.groups.length) parts.push(F.groups.map(g => `gruppo ${g === "X" ? "altri" : g} ${GROUPS[g]}`).join(", "));
   if (F.abc.length) parts.push("classe " + F.abc.map(c => c === "N" ? "senza consumo" : c).join("/"));
@@ -790,7 +791,7 @@ async function viewOrdine(main) {
     <li><b>Per tutti</b>: il disponibile è la giacenza più gli ordini aperti. La <b>vendita regolare</b> di un codice è il consumo medio mensile × l'indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99: un valore più alto nel file conta come 11,99. I codici non tenuti a scorta (SMin e SMax a zero), i fermi e quelli senza storico sono sempre esclusi.</li>
     <li><b>Acquisti per coprire un periodo</b> (1, 2 o 3 mesi): per ogni codice l'obiettivo è il consumo medio mensile × i mesi, mai sotto la SMin e mai sopra la SMax. Si ordina la differenza tra l'obiettivo e il disponibile. Non c'è un importo: la spesa è il risultato.</li>
     <li><b>Acquisti per un importo</b>: prima i codici sotto la SMin tornano alla SMin; se l'importo non basta nemmeno per questo, passano prima i codici con la regolarità più alta e, a parità, con il consumo più alto. Il resto compra a tutti lo stesso numero di mesi di vendita regolare: chi vende di più e con più continuità riceve più pezzi. Nessun codice supera la SMax: chi ci arriva si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, quello che resta non viene speso.</li>
-    <li><b>Acquisti per un importo libero</b>: come l'importo, ma quello che resterebbe non speso sale oltre la SMax con la stessa proporzione: ogni codice riceve lo stesso numero di mesi di vendita regolare in più. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Si può fissare una copertura massima in mesi per codice.</li>
+    <li><b>Acquisti per un importo libero</b>: come l'importo, ma quello che resterebbe non speso sale oltre la SMax con la stessa proporzione: ogni codice riceve lo stesso numero di mesi di vendita regolare in più. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Si può fissare un limite per codice: al massimo da 1 a 6 mesi di consumo medio sopra la SMax.</li>
     <li><b>Pezzi interi</b>: i pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'importo rimasto non basta per un pezzo di un codice si passa agli altri: per questo può avanzare qualche euro.</li>
     <li><b>Codici su richiesta</b>: sono esclusi quelli segnati a mano dal responsabile e, se imposti una soglia, quelli con consumo medio troppo basso.</li></ul></section>`;
   const renderParams = () => {
@@ -935,7 +936,7 @@ function renderProposal(sel = "#ores", recalc) {
     notes.push(`<div class="msg">${parts.length ? "Come è composto l'ordine: " + parts.join("; ") + "." : "Nessun acquisto possibile con l'importo e i codici scelti."}</div>`);
     if (S.left >= 1 && S.prop.full && S.mode === "amount") notes.push(`<div class="msg err">Tutti i codici sono arrivati alla SMax: restano <b>${fmtE(S.left)}</b> non spesi. Per spenderli serve lo scenario «${esc(SCENARI.free.t)}», che può superare la SMax.</div>`);
     if (S.left >= 1 && S.mode === "free" && S.extra && S.extra.full) notes.push(`<div class="msg err">${S.extra.limit
-      ? `Con il limite di ${fmtN(S.extra.limit)} mesi di copertura per codice restano <b>${fmtE(S.left)}</b> non spesi: alza o togli il limite nelle regole, oppure allarga i codici.`
+      ? `Con il limite di ${oltreTxt(S.extra.limit)} per codice restano <b>${fmtE(S.left)}</b> non spesi: alza o togli il limite nelle regole, oppure allarga i codici.`
       : `Nessun codice con vendite regolari può ricevere il resto: restano <b>${fmtE(S.left)}</b> non spesi. Allarga i codici o i filtri.`}</div>`);
     if (!S.prop.full && S.need > S.spent + 0.01) notes.push(`<div class="msg">Portare tutti i codici alla SMax costerebbe <b>${fmtE(S.need)}</b>: l'importo ne copre il ${pct(S.spent, S.need)}.</div>`);
     if (S.no_reg) notes.push(`<div class="msg">Nei dati di questa settimana manca l'indice di regolarità delle vendite: la proporzione usa solo il consumo medio mensile.</div>`);
