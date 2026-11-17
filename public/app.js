@@ -1067,14 +1067,14 @@ function exportConfirmedPdf(R, rows) {
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
-  const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax),
+  const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax), l.cons_mese ? fmtN(l.cons_mese, 2) : "–", l.regolarita ? fmtN(l.regolarita, 2) : "–",
     [l.qty_sold != null ? fmtN(l.qty_sold) : "", l.last_sale ? dIt(l.last_sale) : ""].filter(Boolean).join(" · ") || "–", l.listino != null ? fmtE2(l.listino) : "–", fmtE2(l.cost),
     covTxt(l.cover_before), fmtN(l.qty), fmtE2(l.value), covTxt(l.cover_after), al.length ? (al[0].startsWith("Nessuna") ? "Senza domanda" : `Oltre ${fmtN(th)} mesi`) : ""]);
   doc.autoTable({
-    startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "SMin", "SMax", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
-    foot: [["Totale", "", "", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
-    styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
-    columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 44 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right" }, 10: { halign: "right", fontStyle: "bold" }, 11: { halign: "right" }, 12: { halign: "right" }, 13: { textColor: [198, 40, 40] } },
+    startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "SMin", "SMax", "Consumo (pz/mese)", "Regolarità", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
+    foot: [["Totale", "", "", "", "", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
+    styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.4 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
+    columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 36 }, 2: { cellWidth: 24 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right" }, 10: { halign: "right" }, 11: { halign: "right" }, 12: { halign: "right", fontStyle: "bold" }, 13: { halign: "right" }, 14: { halign: "right" }, 15: { textColor: [198, 40, 40] } },
     alternateRowStyles: { fillColor: [247, 249, 250] }, margin: { left: 14, right: 14 },
     didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Incrocio giacenze ricambi", 14, doc.internal.pageSize.getHeight() - 8); }
   });
