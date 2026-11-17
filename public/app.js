@@ -71,7 +71,25 @@ const isAdmin = () => state.me && state.me.user.role === "admin";
 const dealerName = id => (state.dealers.find(d => d.id === id) || {}).name || "";
 
 /* ============ Avvio e accesso ============ */
+/* Versione: se mentre la pagina è aperta viene pubblicato un aggiornamento, compare un avviso per ricaricarla. */
+let appVer = null, verAt = 0;
+async function checkVersion(force) {
+  if (!force && Date.now() - verAt < 60000) return;
+  verAt = Date.now();
+  try {
+    const r = await fetch("/api/version", { cache: "no-store", credentials: "same-origin" }), v = (await r.json()).v;
+    if (!appVer) { appVer = v; return; }
+    if (v !== appVer && !$("#newver")) {
+      const d = document.createElement("div"); d.id = "newver"; d.className = "newver"; d.setAttribute("role", "status");
+      d.innerHTML = `<span>È disponibile una versione aggiornata della piattaforma. Ricarica la pagina per usarla.</span><button class="btn sm primary" type="button">Ricarica</button>`;
+      $("button", d).onclick = () => location.reload();
+      document.body.appendChild(d);
+    }
+  } catch (e) {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkVersion(); });
 async function boot() {
+  checkVersion(true);
   try { state.me = await api("GET", "/api/me"); }
   catch (e) { if (!e.silent) renderLogin(); return; }
   afterLogin();
@@ -171,6 +189,7 @@ async function loadSnapshots() { state.snapshots = await api("GET", `/api/dealer
 
 function route() {
   if (!state.me) return;
+  checkVersion();
   let view = (location.hash || "#").slice(1);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) view = isAdmin() ? "rete" : "nuovo";
   const main = shell(view);

@@ -38,7 +38,11 @@ const distOf = pkg => path.dirname(require.resolve(pkg));
 const PDF_FILES = { "jspdf.umd.min.js": path.join(distOf("jspdf"), "jspdf.umd.min.js"), "jspdf.plugin.autotable.min.js": path.join(distOf("jspdf-autotable"), "jspdf.plugin.autotable.min.js"),
   "jszip.min.js": require.resolve("jszip/dist/jszip.min.js") };
 app.get("/vendor/:f", (req, res, next) => PDF_FILES[req.params.f] ? res.set("Cache-Control", "public, max-age=86400").sendFile(PDF_FILES[req.params.f]) : next());
-app.use(express.static(path.join(__dirname, "public"), { index: "index.html", maxAge: 0 }));
+// Le pagine e gli script si ricontrollano sempre sul server, così dopo un aggiornamento non resta in uso una copia vecchia.
+app.use(express.static(path.join(__dirname, "public"), { index: "index.html", maxAge: 0, setHeaders: res => res.set("Cache-Control", "no-cache") }));
+// Versione delle pagine pubblicate: una pagina rimasta aperta la confronta con la sua e propone di ricaricare.
+const VERSION = crypto.createHash("sha256").update(["app.js", "app.css", "index.html"].map(f => require("fs").readFileSync(path.join(__dirname, "public", f))).join("")).digest("hex").slice(0, 12);
+app.get("/api/version", (req, res) => res.set("Cache-Control", "no-store").json({ v: VERSION }));
 
 /* ---------- Utilità ---------- */
 const sha = s => crypto.createHash("sha256").update(s).digest("hex");
