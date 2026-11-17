@@ -250,14 +250,14 @@ function rulesText(r, mode) {
 /* Equalizzatore: un cursore verticale per ogni regola numerica. Ogni cursore scorre su valori fissi, dal basso verso l'alto. */
 const mm = v => `${fmtM(v)} ${v === 1 ? "mese" : "mesi"}`;
 const EQ = [
-  { k: "months", name: "Periodo da coprire", on: m => m === "cover", vals: [1, 2, 3], fmt: mm, help: "Quanti mesi di vendite coprire con l'ordine." },
-  { k: "consAdj", name: "Correzione del consumo", on: () => true, vals: [-50, -40, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 40, 50], fmt: v => v ? pctTxt(v) : "0%", help: "Per stagionalità o andamento: in meno se il periodo è più lento, in più se è più vivace." },
-  { k: "regWeight", name: "Peso della regolarità", on: m => m !== "cover", vals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], fmt: v => fmtN(v) + "%", help: "Quanto conta la regolarità nel dividere l'importo. 100%: vendita regolare = consumo × regolarità ÷ 12. 0%: conta solo il consumo." },
-  { k: "maxTotal", name: "Copertura massima", on: () => true, vals: [2, 3, 4, 5, 6, 9, 12, 0], fmt: v => v ? mm(v) : "nessuna", help: "Nessun codice supera questa copertura dopo l'ordine, nemmeno sotto la SMax. La SMin resta sempre garantita." },
-  { k: "maxCover", name: "Oltre la SMax", on: m => m === "free", vals: [1, 2, 3, 4, 5, 6, 0], fmt: v => v ? "+" + mm(v) : "nessun limite", help: "Mesi di consumo che ogni codice può avere in più sopra la SMax. Con un limite, l'importo che non trova posto resta non speso." },
-  { k: "minDemand", name: "Consumo minimo", on: () => true, vals: [0, .05, .1, .2, .3, .5, 1], fmt: v => v ? fmtN(v, 2) + " pz/mese" : "nessuno", help: "I codici che vendono meno di così al mese non vengono proposti." },
-  { k: "minLine", name: "Valore minimo di riga", on: m => m === "cover", vals: [0, 10, 25, 50, 100, 250, 500], fmt: v => v ? fmtE(v) : "nessuno", help: "Le righe che valgono meno di così vengono tolte dalla proposta." },
-  { k: "alertMonths", name: "Avviso oltre", on: () => true, vals: [1, 2, 3, 4, 6, 9, 12], fmt: mm, help: "Le righe che dopo l'ordine superano questa copertura vengono segnalate." }
+  { k: "months", name: "Periodo da coprire", on: m => m === "cover", vals: [1, 2, 3], fmt: mm, help: "Quanti mesi di vendite coprire con l'ordine. Obiettivo di ogni codice = consumo medio × mesi, mai sotto la SMin e mai sopra la SMax. Esempio: consumo 8 pezzi al mese, 2 mesi → obiettivo 16." },
+  { k: "consAdj", name: "Correzione del consumo", on: () => true, vals: [-50, -40, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 40, 50], fmt: v => v ? pctTxt(v) : "0%", help: "Corregge il consumo medio della lista per stagionalità o andamento: in meno se il periodo che arriva è più lento, in più se è più vivace. Esempio: consumo 8 pezzi al mese con −20% → conta 6,4." },
+  { k: "regWeight", name: "Peso della regolarità", on: m => m !== "cover", vals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], fmt: v => fmtN(v) + "%", help: "Negli scenari a importo decide quanto conta la regolarità nel dividere i soldi. 100%: vendita regolare = consumo × regolarità ÷ 12, quindi i codici che vendono con continuità ricevono di più. 0%: conta solo il consumo. Esempio: consumo 3, regolarità 6 → a 100% vale 1,5 pezzi al mese, a 0% vale 3." },
+  { k: "maxTotal", name: "Copertura massima", on: () => true, vals: [2, 3, 4, 5, 6, 9, 12, 0], fmt: v => v ? mm(v) : "nessuna", help: "Tetto in mesi di copertura per ogni codice dopo l'ordine, in tutti gli scenari, anche sotto la SMax. La SMin resta sempre garantita. Esempio: consumo 0,5 pezzi al mese, SMax 6, tetto 6 mesi → al massimo 3 pezzi disponibili." },
+  { k: "maxCover", name: "Oltre la SMax", on: m => m === "free", vals: [1, 2, 3, 4, 5, 6, 0], fmt: v => v ? "+" + mm(v) : "nessun limite", help: "Solo nell'importo libero: quanti mesi di consumo ogni codice può avere sopra la SMax. Con un limite, l'importo che non trova posto resta non speso. Esempio: SMax 30, consumo 8, limite 1 mese → al massimo 38 pezzi." },
+  { k: "minDemand", name: "Consumo minimo", on: () => true, vals: [0, .05, .1, .2, .3, .5, 1], fmt: v => v ? fmtN(v, 2) + " pz/mese" : "nessuno", help: "Esclude dalla proposta i codici che vendono meno di questo numero di pezzi al mese, compresi quelli sotto la SMin. Esempio: soglia 0,2 → un codice che vende 0,15 pezzi al mese non viene proposto." },
+  { k: "minLine", name: "Valore minimo di riga", on: m => m === "cover", vals: [0, 10, 25, 50, 100, 250, 500], fmt: v => v ? fmtE(v) : "nessuno", help: "Nello scenario a periodo toglie le righe che valgono meno di questo importo. Esempio: soglia 100 € → una riga da 8 pezzi a 12 € (96 €) esce dalla proposta." },
+  { k: "alertMonths", name: "Avviso oltre", on: () => true, vals: [1, 2, 3, 4, 6, 9, 12], fmt: mm, help: "Non cambia le quantità: segnala in rosso le righe che dopo l'ordine superano questa copertura, per deciderle a mano. Esempio: 3 mesi → una riga che arriva a 4,7 mesi ha l'avviso." }
 ];
 const eqIndex = (e, v) => { let best = 0; e.vals.forEach((x, i) => { if (Math.abs(x - v) < Math.abs(e.vals[best] - v)) best = i; }); return best; };
 function renderRules(host, mode, onChange) {
@@ -266,7 +266,7 @@ function renderRules(host, mode, onChange) {
   host.innerHTML = `<details class="panel rulespanel"${state.rulesOpen ? " open" : ""}><summary><span class="rt">Regole di riordino</span><span class="rs">${esc(rulesText(r, mode))}</span><span class="rlink">${state.rulesOpen ? "Chiudi" : "Modifica"}</span></summary>
     <p class="small muted">Sono le regole con cui la piattaforma calcola le quantità. Ogni modifica ricalcola subito la proposta e resta salvata per il tuo utente. Tocca una quantità nella tabella per vedere il conto di quella riga.</p>
     <div class="rgrid">
-      <div class="rctl"><span class="rl">SMin e SMax</span><p class="small muted">${free
+      <div class="rctl"><span class="rl">SMin e SMax <button type="button" class="info" data-info="smm" aria-label="Che cos'è: SMin e SMax">i</button></span><p class="small muted">${free
         ? "La SMin è rispettata: i codici che sono sotto vengono riportati alla SMin per primi. La SMax può essere superata, ma solo dopo che tutti i codici ci sono arrivati."
         : "Sono rispettate: nessun codice resta sotto la SMin e nessuno supera la SMax. Per andare oltre la SMax serve lo scenario «" + SCENARI.free.t + "»."}</p></div>
     </div>
@@ -274,11 +274,11 @@ function renderRules(host, mode, onChange) {
       const i = eqIndex(e, r[e.k]);
       return `<div class="eqc" title="${esc(e.help)}"><span class="eqv" id="eqv_${e.k}">${esc(e.fmt(e.vals[i]))}</span>
         <input type="range" id="eq_${e.k}" min="0" max="${e.vals.length - 1}" step="1" value="${i}" aria-label="${esc(e.name)}" aria-valuetext="${esc(e.fmt(e.vals[i]))}">
-        <span class="eqn">${esc(e.name)}</span></div>`; }).join("")}</div>
-    <p class="small eqh" id="eqh">Tocca un cursore per sapere a cosa serve; sopra ogni cursore c'è il valore scelto.</p>
+        <span class="eqn">${esc(e.name)} <button type="button" class="info" data-info="${e.k}" aria-label="Che cos'è: ${esc(e.name)}">i</button></span></div>`; }).join("")}</div>
+    <p class="small eqh" id="eqh" aria-live="polite">Tocca la <span class="info sm">i</span> sotto un cursore per sapere che cos'è quella regola; sopra ogni cursore c'è il valore scelto.</p>
     <div class="rgrid">
-      ${cov ? `<div class="rctl"><span class="rl">Arrotondamento del consumo del periodo</span>${seg("round", r.round, [["nearest", "Al più vicino"], ["up", "Per eccesso"], ["down", "Per difetto"]])}</div>` : ""}
-      <div class="rctl"><span class="rl">Esclusioni</span>
+      ${cov ? `<div class="rctl"><span class="rl">Arrotondamento del consumo del periodo <button type="button" class="info" data-info="round" aria-label="Che cos'è: arrotondamento">i</button></span>${seg("round", r.round, [["nearest", "Al più vicino"], ["up", "Per eccesso"], ["down", "Per difetto"]])}</div>` : ""}
+      <div class="rctl"><span class="rl">Esclusioni <button type="button" class="info" data-info="excl" aria-label="Che cos'è: esclusioni">i</button></span>
         <p class="small muted">I codici non tenuti a scorta (SMin e SMax a zero) sono sempre esclusi.</p>
         <label class="check" for="r_od"><input type="checkbox" id="r_od"${r.exclOnDemand ? " checked" : ""}> Codici segnati come su richiesta</label></div>
     </div>
@@ -288,10 +288,21 @@ function renderRules(host, mode, onChange) {
   const set = (k, v, alertOnly) => { if (rules()[k] === v) return; rules()[k] = v; saveRules(); onChange(alertOnly); };
   EQ.filter(e => e.on(mode)).forEach(e => {
     const el = $("#eq_" + e.k, host), out = $("#eqv_" + e.k, host);
-    const help = () => { $("#eqh", host).innerHTML = `<b>${esc(e.name)}</b>: ${esc(e.help)}`; };
-    el.addEventListener("focus", help); el.addEventListener("pointerdown", help);
-    el.oninput = () => { const t = e.fmt(e.vals[+el.value]); out.textContent = t; el.setAttribute("aria-valuetext", t); help(); };
+    el.oninput = () => { const t = e.fmt(e.vals[+el.value]); out.textContent = t; el.setAttribute("aria-valuetext", t); };
     el.onchange = () => set(e.k, e.vals[+el.value], e.k === "alertMonths");
+  });
+  const INFO_EXTRA = {
+    smm: ["SMin e SMax", "Sono le scorte minima e massima di ogni codice, come arrivano dalla lista movimentazione. Nessun codice resta sotto la SMin; la SMax si supera solo nello scenario «" + SCENARI.free.t + "». Esempio: SMin 8, SMax 30, disponibili 5 → mancano 3 pezzi per la SMin."],
+    round: ["Arrotondamento", "Nello scenario a periodo il consumo del periodo diventa un numero intero di pezzi. Esempio: 6,4 pezzi → 6 al più vicino, 7 per eccesso, 6 per difetto. La SMin resta comunque il minimo."],
+    excl: ["Esclusioni", "I codici non tenuti a scorta (SMin e SMax a zero) non entrano mai negli ordini. Con la casella attiva sono esclusi anche i codici segnati come «su richiesta» con il link nella tabella della proposta."]
+  };
+  $$("[data-info]", host).forEach(b => b.onclick = ev => {
+    ev.preventDefault();
+    const e = EQ.find(x => x.k === b.dataset.info), [name, text] = e ? [e.name, e.help] : INFO_EXTRA[b.dataset.info];
+    const box = $("#eqh", host), same = box.dataset.k === b.dataset.info;
+    $$("[data-info]", host).forEach(x => x.setAttribute("aria-pressed", "false"));
+    if (same) { box.dataset.k = ""; box.innerHTML = "Tocca la <span class=\"info sm\">i</span> sotto un cursore per sapere che cos'è quella regola; sopra ogni cursore c'è il valore scelto."; box.classList.remove("on"); return; }
+    box.dataset.k = b.dataset.info; box.innerHTML = `<b>${esc(name)}</b>: ${esc(text)}`; box.classList.add("on"); b.setAttribute("aria-pressed", "true");
   });
   $$("[data-r]", host).forEach(b => b.onclick = () => set(b.dataset.r, b.dataset.r === "months" ? +b.dataset.v : b.dataset.v));
   const chk = (id, k) => { const el = $("#" + id, host); if (el) el.onchange = () => set(k, el.checked); };

@@ -345,3 +345,7 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .eqn{font-size:12px;line-height:1.25;color:var(--muted);text-align:center;min-height:30px}
 .eqh{color:var(--muted);min-height:20px}
 .eqh b{color:var(--ink)}
+.info{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:3px;padding:0;border:1px solid var(--info);border-radius:50%;background:var(--surface);color:var(--info);font:italic 700 11px/1 Georgia,serif;cursor:pointer;vertical-align:middle}
+.info.sm{width:15px;height:15px;font-size:10px;cursor:default}
+.info[aria-pressed=true]{background:var(--info);color:var(--surface)}
+.eqh.on{color:var(--ink);background:var(--info-soft);border-left:3px solid var(--info);padding:8px 10px;border-radius:0 8px 8px 0}
