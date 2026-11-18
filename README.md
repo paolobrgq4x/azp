@@ -48,6 +48,15 @@ Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`: `lista`, 
 
 Limite da conoscere: gli ordini aperti sono sempre quelli delle liste. Un ordine arrivato dopo la data delle liste è già nella giacenza del file e conta ancora come ordine aperto: per quel codice la proposta può risultare più bassa del necessario.
 
+## Tracciato «Export» mensile delle liste
+
+Oltre alla lista disposizione (riga di titolo, «Codice particolare», «Ord. Aperti»…) la piattaforma riconosce l'export mensile: intestazione sulla prima riga, «Annomese», «Particolare», «Particolare Desc», «Prezzo Listino», «Prz Sco Stk», «Giacenza», «Ult Vend», «SMin», «SMax», «Locazione» e altre colonne che vengono ignorate.
+
+- **Data delle giacenze** — «Annomese» (es. 2026/10) indica il mese: le giacenze sono quelle all'ultimo giorno (31/10/2026).
+- **Più mesi nello stesso file** — vale solo il mese più recente; le righe dei mesi precedenti sono ignorate e la pagina lo dice.
+- **Ordini aperti** — l'export non li riporta: contano zero, e la pagina lo segnala prima di salvare.
+- «Particolare» da solo è il codice; «Particolare Desc», «Particolare Sostituente» e «Particolare Codice Merceologico» no.
+
 ## File delle giacenze: qualsiasi tracciato
 
 Ogni utente può estrarre le giacenze dal proprio gestionale in una forma diversa. Del file servono solo due colonne, il **codice** e la **quantità in giacenza** (più la descrizione, se c'è): tutte le altre vengono ignorate. Le colonne si riconoscono così, nell'ordine:

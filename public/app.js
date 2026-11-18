@@ -1393,11 +1393,13 @@ async function viewRegole(main) {
 
 /* ============ Caricamento dei dati ============ */
 const FIELDS_A = [
-  { key: "code", label: "Codice", req: true, syn: ["codice particolare", "codice", "cod particolare", "part number", "partnumber", "articolo", "stampanr.rc", "stampanr"] },
-  { key: "desc", label: "Descrizione", syn: ["descrizione", "desc"] },
+  // «Particolare» da solo è il codice; «Particolare Desc», «Particolare Sostituente», «Particolare Codice Merceologico» no
+  { key: "code", label: "Codice", req: true, syn: ["codice particolare", "particolare", "codice", "cod particolare", "part number", "partnumber", "articolo", "stampanr.rc", "stampanr"],
+    neg: ["desc", "famigl", "sostitu", "merceolog", "categ", "gruppo"] },
+  { key: "desc", label: "Descrizione", syn: ["descrizione", "particolare desc", "particolare descrizione", "descr", "desc"] },
   { key: "loc", label: "Locazione", syn: ["locaz", "locazione", "ubicazione"] },
   { key: "dg", label: "DG", syn: ["dg"] },
-  { key: "cost", label: "Prezzo netto (costo)", syn: ["sco stk eur", "sco stk", "costo", "prezzo netto", "costo medio"] },
+  { key: "cost", label: "Prezzo netto (costo)", syn: ["sco stk eur", "prz sco stk", "sco stk", "costo", "prezzo netto", "costo medio"] },
   { key: "listino", label: "Prezzo di listino", syn: ["prezzo listino eur", "prezzo listino", "listino"] },
   { key: "ord", label: "Ordini aperti", syn: ["ord. aperti", "ordini aperti", "ord aperti", "in ordine"] },
   // giacenza riportata dalla lista (alla fine del mese precedente): facoltativa; se c'è, il file giacenze non è indispensabile
@@ -1407,7 +1409,7 @@ const FIELDS_A = [
   { key: "smax", label: "Scorta massima", req: true, syn: ["smax", "scorta max", "scorta massima"] },
   { key: "regolarita", label: "Regolarità vendite (indice)", syn: ["regolarità vendite", "regolarita vendite", "indice di regolarità", "regolarità", "regolarita"], hs: ["1sqy7ce"] },
   { key: "cons_mese", label: "Consumo medio mensile", syn: ["consumo medio mensile", "consumo medio", "consumo mensile", "consumo mese"], hs: ["1ji1e61"] },
-  { key: "qtaven", label: "Venduto / ultima vendita", syn: ["qtaven/ultven", "qtaven", "qta ven", "ultven", "venduto"] },
+  { key: "qtaven", label: "Venduto / ultima vendita", syn: ["qtaven/ultven", "qtaven", "qta ven", "ult vend", "ultven", "venduto"] },
   { key: "venspc", label: "Vendite speciali", syn: ["ven spc", "venspc", "vendite speciali"] },
   { key: "fab", label: "FAB", syn: ["fab"] }
 ];
@@ -1776,6 +1778,35 @@ function renderSlot(slot) {
     again();
   });
 }
+/* ============ Mese di riferimento delle liste ============
+ * Alcune estrazioni hanno una colonna «Annomese» (2026/10): le giacenze sono quelle all'ultimo giorno di quel mese.
+ * Se un file contiene più mesi, per ogni codice vale solo il mese più recente: le righe dei mesi precedenti vengono ignorate.
+ */
+const MESE_HDR = ["annomese", "annomes", "meseanno", "mese", "periodo", "meserif", "meseriferimento", "mesediriferimento"];
+const monthKey = (y, mo) => (y >= 2000 && y <= 2100 && mo >= 1 && mo <= 12 ? y * 12 + mo - 1 : null);
+function parseMonth(v) {
+  if (v == null || v === "") return null;
+  const t = String(v).trim(); let m;
+  if ((m = /^(\d{4})\s*[\/.\-]?\s*(\d{1,2})$/.exec(t))) return monthKey(+m[1], +m[2]);
+  if ((m = /^(\d{1,2})\s*[\/.\-]\s*(\d{4})$/.exec(t))) return monthKey(+m[2], +m[1]);
+  return null;
+}
+const monthEndOf = k => { const y = Math.floor(k / 12), mo = k % 12 + 1, d = new Date(y, mo, 0).getDate(); return `${String(d).padStart(2, "0")}/${String(mo).padStart(2, "0")}/${y}`; };
+const monthLabel = k => `${String(k % 12 + 1).padStart(2, "0")}/${Math.floor(k / 12)}`;
+function monthsOf(s) {
+  const rows = s.wb.sheets[s.sheet] || [], key = [s.sheet, s.headerRow, s.map.code].join("|");
+  if (s.mth && s.mth.key === key) return s.mth;
+  const hdr = rows[s.headerRow] || [], o = { key, col: null, latest: null, n: 0, drop: 0 };
+  const col = hdr.findIndex((h, i) => MESE_HDR.includes(norm(h)) && !Object.values(s.map).includes(i));
+  if (col >= 0 && s.map.code != null) {
+    const seen = new Map();
+    for (let i = s.headerRow + 1; i < rows.length; i++) { const r = rows[i] || []; if (r[s.map.code] == null || r[s.map.code] === "") continue; const k = parseMonth(r[col]); if (k != null) seen.set(k, (seen.get(k) || 0) + 1); }
+    if (seen.size) { o.col = col; o.latest = Math.max(...seen.keys()); o.n = seen.size; for (const [k, c] of seen) if (k !== o.latest) o.drop += c; }
+  }
+  return (s.mth = o);
+}
+// riga da usare: se il file ha più mesi, solo quelle del mese più recente (le righe senza mese restano)
+const rowOk = (mi, r) => mi.n < 2 || parseMonth(r[mi.col]) == null || parseMonth(r[mi.col]) === mi.latest;
 /* ============ Quali giacenze usare ============
  * Le liste movimentazione possono riportare la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la fotografia di oggi.
  *   - solo le liste: si calcola con le giacenze delle liste;
@@ -1788,12 +1819,13 @@ let LSTOCK = { key: null }, SCMP = { key: null };
 function listStock() {
   const U = state.upload, key = U.A.map(s => [wbId(s.wb), s.sheet, s.headerRow, s.map.code, s.map.giac].join(":")).join("|");
   if (LSTOCK.key === key) return LSTOCK;
-  const r = { key, has: U.A.length > 0, nocol: 0, codes: 0, pieces: 0, ref: null }, refs = new Set();
+  const r = { key, has: U.A.length > 0, nocol: 0, codes: 0, pieces: 0, ref: null, months: 0, drop: 0, latest: null }, refs = new Set();
   for (const s of U.A) {
-    const rows = s.wb.sheets[s.sheet] || [], c = s.map.code, g = s.map.giac; let pos = 0;
+    const rows = s.wb.sheets[s.sheet] || [], c = s.map.code, g = s.map.giac, mi = monthsOf(s); let pos = 0;
+    if (mi.n) { r.months = Math.max(r.months, mi.n); r.drop += mi.drop; r.latest = r.latest == null ? mi.latest : Math.max(r.latest, mi.latest); }
     if (c != null && g != null) {
-      for (let i = s.headerRow + 1; i < rows.length; i++) { const row = rows[i] || []; if (row[c] == null || row[c] === "") continue; const q = nz(row[g]); if (q) { pos++; r.pieces += q; } }
-      const d = refDate((rows[s.headerRow] || [])[g]); if (d) refs.add(d);
+      for (let i = s.headerRow + 1; i < rows.length; i++) { const row = rows[i] || []; if (row[c] == null || row[c] === "" || !rowOk(mi, row)) continue; const q = nz(row[g]); if (q) { pos++; r.pieces += q; } }
+      const d = refDate((rows[s.headerRow] || [])[g]) || (mi.latest != null ? monthEndOf(mi.latest) : null); if (d) refs.add(d);
     }
     if (!pos) { r.has = false; if (g == null) r.nocol++; }
     r.codes += pos;
@@ -1828,6 +1860,13 @@ const needMissChoice = () => listStock().has && manyMissing(stockCompare()) && !
 // Le giacenze sono a posto con un file giacenze in ordine, oppure, senza file, quando le liste le riportano.
 const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : listStock().has);
 function stockSumHtml() {
+  const h = stockSumCore(); if (!h) return h;
+  const U = state.upload, LS = listStock(), notes = [];
+  if (LS.months > 1) notes.push(`Le liste contengono ${fmtN(LS.months)} mesi: uso solo il più recente (${monthLabel(LS.latest)}); ${fmtN(LS.drop)} righe dei mesi precedenti sono ignorate.`);
+  if (U.A.every(s => s.map.ord == null)) notes.push("Le liste non hanno la colonna degli ordini aperti: per la piattaforma sono zero. Se ci sono ordini in arrivo, la proposta può ordinarli di nuovo.");
+  return notes.length ? h.replace(/<\/div>$/, notes.map(n => `<p class="small">${esc(n)}</p>`).join("") + "</div>") : h;
+}
+function stockSumCore() {
   const U = state.upload, LS = listStock();
   if (!U.A.length || !slotReady("A")) return "";
   const ref = LS.ref ? `al ${esc(LS.ref)}` : "alla fine del mese precedente";
@@ -1865,9 +1904,9 @@ const numCell = v => { if (typeof v !== "string") return v; const n = numVal(v);
 function extract(slot) {
   const out = [], K = slot === "B" ? knownCodes() : null;
   for (const s of state.upload[slot]) {
-    const rows = s.wb.sheets[s.sheet], m = s.map, g = (r, k) => m[k] == null ? null : r[m[k]];
+    const rows = s.wb.sheets[s.sheet], m = s.map, g = (r, k) => m[k] == null ? null : r[m[k]], mi = slot === "A" ? monthsOf(s) : { n: 0 };
     for (let i = s.headerRow + 1; i < rows.length; i++) {
-      const r = rows[i] || [], c = g(r, "code"); if (c == null || c === "") continue;
+      const r = rows[i] || [], c = g(r, "code"); if (c == null || c === "" || !rowOk(mi, r)) continue;
       if (slot === "A") out.push([c, g(r, "desc"), g(r, "loc"), g(r, "dg"), numCell(g(r, "cost")), numCell(g(r, "ord")), numCell(g(r, "smin")), numCell(g(r, "smax")), numCell(g(r, "regolarita")), numCell(g(r, "cons_mese")), numCell(g(r, "listino")), numCell(g(r, "qtaven")), numCell(g(r, "venspc")), numCell(g(r, "fab")), numCell(g(r, "giac"))]);
       else {
         // giacenze: il codice nella forma delle liste movimentazione, la quantità come numero; nient'altro
@@ -1923,6 +1962,18 @@ const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.",
 // Intestazione delle liste di prova: se riportano le giacenze, la colonna dice a che data (la fine del mese scorso).
 const G_COL_GIAC = 8;
 const monthEnd = () => { const d = new Date(), e = new Date(d.getFullYear(), d.getMonth(), 0); return `${String(e.getDate()).padStart(2, "0")}/${String(e.getMonth() + 1).padStart(2, "0")}/${e.getFullYear()}`; };
+// Tracciato «Export» mensile: una riga per codice, intestazione sulla prima riga, «Annomese» con il mese delle giacenze, niente ordini aperti.
+const G_HDR_X = ["Annomese", "Organizzato", "DG", "Aut Blk Man", "Particolare", "Particolare Desc", "Partic Famiglia", "Sostituente", "Particolare Sostituente", "Prezzo Listino", "Prz Sco Stk", "Giacenza", "Prezzo Totale", "Ult Vend", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "GV", "Locazione", "Particolare Codice Merceologico"];
+const TRACCIATI_A = [["export", "Export mensile (Annomese, Particolare, Giacenza…)"], ["lista", "Lista disposizione (titolo, Codice particolare, Ord. Aperti…)"]];
+const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`; };
+const hcode = c => { let h = 0; for (const ch of String(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+const FAM = ["RCP", "RCO", "KDA", "KAB", "ECA", "KGA", "NNA", "KDT"], GVS = ["1", "2", "3", "3", "5A", "5C"];
+// da una riga della lista disposizione (DG, codice, descrizione, locazione, listino, netto, venduto, ven. speciali, giacenza, ordini, FAB, regolarità, consumo, SMin, SMax, scad.) a una riga dell'export
+function exportRows(A) {
+  const am = prevMonth();
+  return [G_HDR_X].concat(A.map(r => { const h = hcode(r[1]), g = r[8];
+    return [am, "00999", r[0], "V", r[1], r[2], FAM[h % FAM.length], null, null, r[4], r[5], g, g == null ? null : Math.round(g * r[5] * 100) / 100, r[6], r[10], r[11], r[12], r[13], r[14], GVS[(h >>> 5) % GVS.length], r[3], "01 - RICAMBI"]; }));
+}
 const hdrA = withStock => G_HDR_A.map((h, i) => (i === G_COL_GIAC && withStock ? h + monthEnd() : h));
 function generateData(o) {
   const R = rng(o.seed), pick = a => a[Math.floor(R() * a.length)], ri = (a, b) => a + Math.floor(R() * (b - a + 1)), rf = (a, b) => a + R() * (b - a);
@@ -2036,7 +2087,7 @@ function stockSheet(B, fmt) {
   return [G_HDR_B].concat(B);
 }
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtB: "std", listStock: true, seed: Math.floor(Math.random() * 1e6) });
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtA: "export", fmtB: "std", listStock: true, seed: Math.floor(Math.random() * 1e6) });
   main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid2">
@@ -2050,12 +2101,13 @@ async function viewProva(main) {
       <label class="field" for="gw">Caricamenti<select id="gw">${[1, 2, 4, 6, 8].map(v => `<option value="${v}"${v === P.weeks ? " selected" : ""}>${v === 1 ? "1 (solo i dati più recenti)" : v + " successivi"}</option>`).join("")}</select></label>
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
     </div>
+    <label class="field" for="gfa">Tracciato delle liste movimentazione<select id="gfa">${TRACCIATI_A.map(([v, l]) => `<option value="${v}"${v === (P.fmtA || "export") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
     <label class="field" for="gfb">Tracciato del file giacenze<select id="gfb">${TRACCIATI.map(([v, l]) => `<option value="${v}"${v === (P.fmtB || "std") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
     <label class="field" for="gls">Giacenze riportate nelle liste movimentazione<select id="gls"><option value="1"${P.listStock !== false ? " selected" : ""}>Sì, alla fine del mese scorso: il file giacenze è facoltativo</option><option value="0"${P.listStock === false ? " selected" : ""}>No, colonna vuota: il file giacenze è obbligatorio</option></select></label>
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
-    <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
+    <li><b>Lista movimentazione</b>, due tracciati. «Export mensile»: foglio «Export», intestazione sulla prima riga e 22 colonne da Annomese a Codice merceologico; Annomese è il mese scorso e la colonna Giacenza riporta le giacenze all'ultimo giorno di quel mese; non c'è la colonna degli ordini aperti. «Lista disposizione»: foglio «Liste Movimentazione», riga di titolo e 16 colonne da DG a Scad, con gli ordini aperti.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
     <li><b>Giacenze riportate nelle liste</b>: la lista ha una colonna con la giacenza di ogni codice alla fine del mese scorso; il file giacenze è la situazione di oggi, circa due settimane dopo. Tra le due date si è venduto, per qualche codice è arrivato un riordino e qualche codice è andato esaurito e non compare più nel file giacenze. Puoi caricare solo la lista, e i calcoli usano le sue giacenze, oppure anche il file giacenze, che le sostituisce. Con la colonna vuota il file giacenze è obbligatorio.</li>
     <li><b>Tracciato del file giacenze</b>: gli stessi dati si possono avere in forme diverse, per provare che la piattaforma trova da sola codice e giacenza. «Altro gestionale» ha un titolo, colonne con altri nomi e in altro ordine, più impegnato, in arrivo, costo e data; «sigle» ha nomi che non dicono niente e tre colonne di quantità, quindi la prima volta la piattaforma chiede conferma e poi se ne ricorda; «solo dati» non ha intestazione.</li>
@@ -2069,7 +2121,7 @@ async function viewProva(main) {
     const n = v => Math.round(parseNum(v));
     P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
     P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
-    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std"; P.listStock = $("#gls").value !== "0";
+    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std"; P.listStock = $("#gls").value !== "0"; P.fmtA = $("#gfa").value === "lista" ? "lista" : "export";
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
@@ -2078,8 +2130,9 @@ async function viewProva(main) {
       for (let w = 0; w < weeks.length; w++) {
         const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
         st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
-        const wa = XLSX.utils.book_new(), sa = XLSX.utils.aoa_to_sheet([["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
-        XLSX.utils.book_append_sheet(wa, sa, "Liste Movimentazione");
+        const wa = XLSX.utils.book_new(), ex = P.fmtA !== "lista";
+        const sa = XLSX.utils.aoa_to_sheet(ex ? exportRows(weeks[w].A) : [["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
+        XLSX.utils.book_append_sheet(wa, sa, ex ? "Export" : "Liste Movimentazione");
         zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
         const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
         zip.file(`${tag}_2_giacenze.xlsx`, XLSX.write(wb, { bookType: "xlsx", type: "array" }));
