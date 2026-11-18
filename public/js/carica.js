@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · caricamento dei file: lettura, riconoscimento delle colonne, giacenze, perimetro */
+/* PartsPlanner · caricamento dei file: lettura, riconoscimento delle colonne, giacenze, perimetro */
 
 /* ============ Caricamento dei dati ============ */
 const FIELDS_A = [

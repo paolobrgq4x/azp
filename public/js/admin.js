@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · pagina Amministrazione */
+/* PartsPlanner · pagina Amministrazione */
 
 /* ============ Amministrazione ============ */
 // Codici di un file per il perimetro: la colonna del codice si riconosce dal nome (come nelle liste), altrimenti è la prima colonna.

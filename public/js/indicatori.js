@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · barre orizzontali e pagina Scheda codice */
+/* PartsPlanner · barre orizzontali e pagina Scheda codice */
 
 /* ============ Barre orizzontali ============ */
 function bars(host, items, opt = {}) {

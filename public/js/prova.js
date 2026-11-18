@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · generatore di dati di prova */
+/* PartsPlanner · generatore di dati di prova */
 
 /* ============ Generatore di dati di prova ============
  * Crea liste movimentazione e giacenze fittizie con la stessa struttura dei file reali,
@@ -17,7 +17,6 @@ const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], [
   ["9", "BATTERIA", 110, 290], ["4", "MOLLA ELICOID.", 40, 130], ["4", "CUSCINETTO RUOTA", 75, 210], ["6", "CERCHIO", 180, 690], ["8", "RIVEST. SEDILE", 140, 520],
   ["8", "PANNELLO PORTA", 160, 480], ["1", "SUPPORTO MOTORE", 60, 220], ["1", "TURBOCOMPRESSORE", 950, 2400], ["3", "KIT FRIZIONE", 260, 720], ["0", "BULLONE", 1, 9],
   ["7", "LEVA FRENO MANO", 35, 140], ["7", "PEDALIERA", 60, 210], ["3", "SUPPORTO CAMBIO", 45, 160], ["0", "VERNICE RITOCCO", 12, 38], ["5", "MOZZO POST.", 70, 230]];
-const G_GRP = ["KDA", "KDB", "KMA", "KMB", "ZUB", "OEL", "REI"];
 const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giac Cross Aggiornate al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
 const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.", "GrpOmog."];
 // Intestazione delle liste di prova: se riportano le giacenze, la colonna dice a che data (la fine del mese scorso).
@@ -29,24 +28,9 @@ const TRACCIATI_A = [["export", "Export mensile (Annomese, Particolare, Giacenza
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const hcode = c => { let h = 0; for (const ch of String(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const FAM = ["RCP", "RCO", "KDA", "KAB", "ECA", "KGA", "NNA", "KDT"], GVS = ["1", "2", "3", "3", "5A", "5C"];
-/* Forma dei dati nell'export: codici come quelli dei ricambi (tre caratteri, il gruppo principale, cinque cifre, a volte lettere in coda;
- * qualche normalizzato «N  9…»), DG di quattro caratteri, locazioni come A01HJ. Il gruppo principale resta il quarto carattere del codice.
- * La stessa conversione vale per le liste e per il file giacenze, così i codici dei due file coincidono. */
-const X_PRE = ["1K0", "1T0", "1S0", "2K5", "3C0", "3G0", "5G0", "5Q0", "5N0", "6R0", "7N0", "03L", "03N", "04E", "04L", "06K", "0AM", "2Q0"];
-const X_SUF = ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T"];
+/* Forma dei dati nell'export: codici di 10 cifre, senza lettere, con il gruppo omogeneo nella quarta cifra; DG di quattro caratteri,
+ * locazioni come A01HJ. Liste e file giacenze usano gli stessi codici. */
 const X_MERC = ["01 - RICAMBI", "01 - RICAMBI", "01 - RICAMBI", "02 - RICAMBI", "03 - RICAMBI", "03 - RICAMBI", "04 - RICAMBI", "06 - RICAMBI", "08 - RICAMBI"];
-function codeMapper(seed) {
-  const R = rng(seed ^ 0x5a17), used = new Set(), map = new Map(), pick = a => a[Math.floor(R() * a.length)], d = n => { let t = ""; for (let i = 0; i < n; i++) t += Math.floor(R() * 10); return t; };
-  return c => {
-    if (map.has(c)) return map.get(c);
-    const g = String(c)[3] || "0"; let x;
-    do {
-      const u = R();
-      x = u < .03 ? `N  9${pick(["0", "1"])}${g}${d(5)}` : `${pick(X_PRE)}${g}${d(5)}${u < .45 ? "" : u < .85 ? pick(X_SUF) : pick(X_SUF) + pick(X_SUF)}`;
-    } while (used.has(x.replace(/\s+/g, "")));
-    used.add(x.replace(/\s+/g, "")); map.set(c, x); return x;
-  };
-}
 const xDG = dg => { const h = hcode(dg); return "H" + "MNPRSZ"[h % 6] + ((h >>> 3) % 3 === 0 ? "ZZ" : String((h >>> 5) % 40 + 1).padStart(2, "0")); };
 const xLoc = loc => { if (!loc) return null; const h = hcode(loc), L = "ABCDEFGHJ", A = "ABCDEFGHIJKLMNPRS0123456789"; return `${"AB"[h % 2]}${String((h >>> 1) % 20 + 1).padStart(2, "0")}${L[(h >>> 6) % L.length]}${A[(h >>> 10) % A.length]}`; };
 // da una riga della lista disposizione (DG, codice, descrizione, locazione, listino, netto, venduto, ven. speciali, giacenza, ordini, FAB, regolarità, consumo, SMin, SMax, scad.) a una riga dell'export
@@ -64,7 +48,7 @@ function generateData(o) {
   const used = new Set(), DGS = [];
   for (let n = 1; n < 40; n++) DGS.push("H" + String(n).padStart(3, "0")); for (let n = 1; n < 15; n++) DGS.push("A" + String(n).padStart(3, "0")); for (let n = 1; n < 10; n++) DGS.push("M" + String(n).padStart(3, "0"));
   // 8 cifre: tre casuali, il gruppo principale, quattro casuali
-  const newCode = () => { for (;;) { const pt = pick(G_PARTS), c = String(ri(100, 999)) + pt[0] + String(ri(0, 9999)).padStart(4, "0"); if (!used.has(c)) { used.add(c); return [c, pt]; } } };
+  const newCode = () => { for (;;) { const pt = pick(G_PARTS), c = String(ri(100, 999)) + pt[0] + String(ri(0, 999999)).padStart(6, "0"); if (!used.has(c)) { used.add(c); return [c, pt]; } } };
   const loc = () => R() < .08 ? null : R() < .15 ? `${pick("ABHJKM".split(""))}${ri(1, 9)}${pick("ABCDEFG".split(""))}${ri(1, 9)}` : `${pick("ABHJKM".split(""))}${String(ri(1, 30)).padStart(2, "0")}${pick("ABCDEF".split(""))}${ri(1, 6)}`;
   // profilo: quota di codici a scorta sotto SMin e sopra SMax, e quota di codici non a scorta con pezzi fermi, nel primo caricamento
   const prof = { equilibrato: [.25, .12, .2], alto: [.08, .35, .35], scarico: [.45, .04, .08] }[o.profile] || [.25, .12, .2];
@@ -109,9 +93,9 @@ function generateData(o) {
     const g = giacOf(s);
     if (s.smax && g < s.smin && R() < .3) s.ord = s.smax - g;   // per alcuni codici sotto scorta il riordino è già partito
     s.fab = Math.max(0, s.smin - g - s.ord);
-    B.set(s.code, [s.code, R() < .85 ? "V" : pick(["A", "S", "Z"]), s.desc, R() < .92 ? "R" : "Z", g, pick(G_GRP)]);
+    B.set(s.code, [s.code, R() < .85 ? "V" : pick(["A", "S", "Z"]), s.desc, R() < .92 ? "R" : "Z", g, s.code[3]]);
   });
-  for (let k = 0; k < nExtra; k++) { const [c, pt] = newCode(); B.set(c, [c, "V", pt[1], "R", R() < .5 ? 0 : ri(1, 3), pick(G_GRP)]); }
+  for (let k = 0; k < nExtra; k++) { const [c, pt] = newCode(); B.set(c, [c, "V", pt[1], "R", R() < .5 ? 0 : ri(1, 3), c[3]]); }
   const weeks = [];
   // Giacenza riportata dalla lista (fine del mese precedente), ricavata all'indietro da quella di oggi, circa due settimane dopo:
   // i pezzi venduti nel frattempo (mezzo mese di consumo) c'erano ancora, mentre i riordini arrivati nel frattempo non c'erano.
@@ -188,8 +172,8 @@ async function viewProva(main) {
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
-    <li><b>Lista movimentazione</b>, due tracciati. «Export mensile»: come il file mensile reale, foglio «Export», intestazione sulla prima riga e 22 colonne da Annomese a Codice merceologico, codici nella forma dei ricambi (per esempio 5Q0819669 o 03N115562B, a volte normalizzati «N  9…»); Annomese è il mese scorso e la colonna Giacenza riporta le giacenze all'ultimo giorno di quel mese; non c'è la colonna degli ordini aperti. «Lista disposizione»: foglio «Liste Movimentazione», riga di titolo e 16 colonne da DG a Scad, con gli ordini aperti.</li>
-    <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
+    <li><b>Lista movimentazione</b>, due tracciati. «Export mensile»: come il file mensile reale, foglio «Export», intestazione sulla prima riga e 22 colonne da Annomese a Codice merceologico, codici di 10 cifre senza lettere (per esempio 3618402957), con il gruppo omogeneo nella quarta cifra; Annomese è il mese scorso e la colonna Giacenza riporta le giacenze all'ultimo giorno di quel mese; non c'è la colonna degli ordini aperti. «Lista disposizione»: foglio «Liste Movimentazione», riga di titolo e 16 colonne da DG a Scad, con gli ordini aperti.</li>
+    <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.; GrpOmog. riporta la quarta cifra del codice.</li>
     <li><b>Giacenze riportate nelle liste</b>: la lista ha una colonna con la giacenza di ogni codice alla fine del mese scorso; il file giacenze è la situazione di oggi, circa due settimane dopo. Tra le due date si è venduto, per qualche codice è arrivato un riordino e qualche codice è andato esaurito e non compare più nel file giacenze. Puoi caricare solo la lista, e i calcoli usano le sue giacenze, oppure anche il file giacenze, che le sostituisce. Con la colonna vuota il file giacenze è obbligatorio.</li>
     <li><b>Tracciato del file giacenze</b>: gli stessi dati si possono avere in forme diverse, per provare che la piattaforma trova da sola codice e giacenza. «Altro gestionale» ha un titolo, colonne con altri nomi e in altro ordine, più impegnato, in arrivo, costo e data; «sigle» ha nomi che non dicono niente e tre colonne di quantità, quindi la prima volta la piattaforma chiede conferma e poi se ne ricorda; «solo dati» non ha intestazione.</li>
     <li><b>Volumi in euro</b> (facoltativi): il venduto annuo è consumo medio mensile × 12 × prezzo netto di tutti i codici delle liste; il valore a magazzino è giacenza × prezzo netto. La piattaforma adatta le quantità (consumi, SMin, SMax e giacenze) per avvicinarsi agli importi, senza cambiare i prezzi. Con più caricamenti, gli importi valgono per l'ultimo. Lasciati vuoti, i volumi escono da soli in base al numero di codici.</li>
@@ -211,7 +195,7 @@ async function viewProva(main) {
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
       st.textContent = "Genero i dati…"; await new Promise(r => setTimeout(r, 30));
-      const G = generateTarget(P), weeks = G.weeks, zip = new window.JSZip(), cm = P.fmtA !== "lista" ? codeMapper(P.seed) : null;
+      const G = generateTarget(P), weeks = G.weeks, zip = new window.JSZip(), cm = null;
       for (let w = 0; w < weeks.length; w++) {
         const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
         st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));

@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · basi: utilità, stato, accesso, struttura delle pagine e navigazione */
+/* PartsPlanner · basi: utilità, stato, accesso, struttura delle pagine e navigazione */
 
 /* ============ Utilità ============ */
 const $ = (s, el = document) => el.querySelector(s);
@@ -121,9 +121,9 @@ function afterLogin() {
   route();
 }
 function renderLogin(msg) {
-  document.title = "Accedi · Parts Planning";
+  document.title = "Accedi · PartsPlanner";
   $("#root").innerHTML = `<div class="login"><form class="panel" id="lf" novalidate>
-    <div><h1>Parts Planning</h1><p class="muted small">Accesso riservato alla rete.</p></div>
+    <div><h1>PartsPlanner</h1><p class="muted small">Accesso riservato alla rete.</p></div>
     ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
     <div class="msg err" id="lerr" hidden></div>
     <label class="field" for="lu">Nome utente<input type="text" id="lu" autocomplete="username" autocapitalize="none" required></label>
@@ -179,7 +179,7 @@ function shell(view) {
   const dsel = isAdmin()
     ? `<select id="dsel" aria-label="Concessionaria"><option value="">Scegli concessionaria…</option>${state.dealers.map(d => `<option value="${d.id}"${d.id === state.dealerId ? " selected" : ""}>${esc(d.name)}${d.code ? " · " + esc(d.code) : ""}</option>`).join("")}</select>`
     : `<span class="who">${esc(u.dealer_name || "")}</span>`;
-  $("#root").innerHTML = `<header class="topbar"><div class="brand"><span class="dot"></span>Parts Planning</div>${dsel}
+  $("#root").innerHTML = `<header class="topbar"><div class="brand">PartsPlanner</div>${dsel}
     <span class="who">${esc(u.full_name || u.username)}</span><button class="link" type="button" id="pwd">Password</button><button class="link" type="button" id="out">Esci</button></header>
     <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.admin || isAdmin()).map(v => `<a href="/${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
     <main id="main"></main>`;
@@ -189,7 +189,7 @@ function shell(view) {
     try { localStorage.setItem("ig_dealer", state.dealerId || ""); } catch (x) {}
     if (curView() === "rete" || curView() === "admin") go("analisi"); else route();
   };
-  document.title = (VIEWS.find(v => v.id === view) || {}).label + " · Parts Planning";
+  document.title = (VIEWS.find(v => v.id === view) || {}).label + " · PartsPlanner";
   return $("#main");
 }
 function needDealer(main) {

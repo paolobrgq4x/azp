@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · pagina Scenari d'ordine, tabella di conferma, Excel e PDF */
+/* PartsPlanner · tabella di conferma dell'ordine, Excel e PDF */
 
 /* ============ Scenari d'ordine ============ */
 const GROUPS = { "0": "Accessori e vernici", "1": "Motore", "2": "Alimentazione e scarico", "3": "Cambio", "4": "Assale anteriore e sterzo",
@@ -303,7 +303,7 @@ function exportConfirmedPdf(R, rows) {
     styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.4 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
     columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 36 }, 2: { cellWidth: 24 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right" }, 10: { halign: "right" }, 11: { halign: "right" }, 12: { halign: "right", fontStyle: "bold" }, 13: { halign: "right" }, 14: { halign: "right" }, 15: { textColor: [198, 40, 40] } },
     alternateRowStyles: { fillColor: [247, 249, 250] }, margin: { left: 14, right: 14 },
-    didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Parts Planning", 14, doc.internal.pageSize.getHeight() - 8); }
+    didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("PartsPlanner", 14, doc.internal.pageSize.getHeight() - 8); }
   });
   let y = doc.lastAutoTable.finalY + 8;
   if (nEd) { doc.setFontSize(8); doc.setTextColor(80); doc.text(`* Quantità cambiata a mano rispetto alla proposta (${fmtN(nEd)} ${nEd === 1 ? "riga" : "righe"}); l'Excel riporta anche la quantità proposta.`, 14, y); }

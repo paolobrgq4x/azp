@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · pagina Regole di approvvigionamento */
+/* PartsPlanner · pagina Regole di approvvigionamento */
 
 /* ============ Regole di approvvigionamento (pagina di sola lettura) ============ */
 async function viewRegole(main) {

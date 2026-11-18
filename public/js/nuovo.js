@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · procedura guidata «Nuovo ordine» */
+/* PartsPlanner · procedura guidata «Nuovo ordine» */
 
 async function viewNuovo(main) {
   if (needDealer(main)) return;

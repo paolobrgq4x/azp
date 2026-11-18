@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · scenari, regole di riordino ed equalizzatore, spiegazione delle quantità */
+/* PartsPlanner · scenari, regole di riordino ed equalizzatore, spiegazione delle quantità */
 
 /* ============ Procedura guidata: Nuovo ordine ============
  * 1 Obiettivo -> 2 Liste movimentazione -> 3 Giacenze -> 4 Codici -> 5 Risultato

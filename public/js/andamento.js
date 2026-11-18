@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · pagine Rete e Analisi codici */
+/* PartsPlanner · pagine Rete e Analisi codici */
 
 /* ============ Rete (amministratore) ============ */
 function trend(cur, prev, upIsBad = true) {

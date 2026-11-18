@@ -1,4 +1,4 @@
-# Parts Planning
+# PartsPlanner
 
 Piattaforma di pianificazione ricambi (nata come «Incrocio giacenze ricambi»).
 
