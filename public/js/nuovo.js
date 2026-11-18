@@ -57,11 +57,11 @@ function overFields(x) {
   return `<label class="field" for="${x}om">Come salire oltre la SMax<select id="${x}om">${OVER.map(([v, l, d]) => `<option value="${v}"${v === om ? " selected" : ""}>${l}: ${d}</option>`).join("")}</select></label>
     ${om === "mix" ? leverHtml(x + "ow", r.overWeight) : ""}
     ${dyn ? `<label class="field" for="${x}sm">Rivendere i pezzi in più entro<select id="${x}sm">${opt(SELL_MONTHS, r.sellMonths, mm)}</select></label>
-    <label class="field" for="${x}sp">Certezza minima<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
+    <label class="field" for="${x}sp">Probabilità minima di vendita<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
     <label class="field" for="${x}mc">Tetto per codice oltre la SMax (facoltativo)<select id="${x}mc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === r.maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>`;
 }
 const overHelp = r => (overMode(r) === "dyn"
-  ? "Con l'aumento dinamico, per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi scelti e compra i pezzi dal più sicuro al meno sicuro: sale di più chi vende tanto e con regolarità. Si ferma quando finisce l'importo o quando la probabilità scende sotto la certezza minima: quello che resta non viene speso."
+  ? "Con l'aumento dinamico, per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi scelti e compra i pezzi dal più probabile da vendere al meno probabile: sale di più chi vende tanto e con regolarità. Si ferma quando finisce l'importo o quando la probabilità scende sotto la probabilità minima di vendita: quello che resta non viene speso."
   : OVER_DESC[overMode(r)] + " Senza tetto l'importo viene speso tutto; con un tetto, quello che non trova posto resta non speso.");
 function overRead(x) {
   const r = rules(), g = id => $("#" + x + id);

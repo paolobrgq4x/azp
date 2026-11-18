@@ -18,9 +18,9 @@ const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
  *  reg  aumento per regolarità: i mesi di scorta in più crescono con la regolarità (consumo × regolarità ÷ 12)
  *  mix  aumento misto: come per regolarità, con il peso della regolarità scelto da chi ordina (0% = per consumo, 100% = per regolarità)
  *  dyn  aumento dinamico: per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti; si comprano i pezzi
- *       dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la certezza minima */
+ *       dal più probabile da vendere al meno probabile, finché dura l'importo e finché la probabilità resta sopra la probabilità minima di vendita */
 const OVER = [["cons", "Aumento per consumo", "tutti salgono degli stessi mesi di scorta"], ["reg", "Aumento per regolarità", "sale di più chi vende con continuità"],
-  ["mix", "Aumento misto", "bilanci tu consumo e regolarità"], ["dyn", "Aumento dinamico", "prima i pezzi più sicuri da rivendere"]];
+  ["mix", "Aumento misto", "bilanci tu consumo e regolarità"], ["dyn", "Aumento dinamico", "prima i pezzi più probabili da vendere"]];
 const OVER_W = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 // Leva dell'aumento misto: a sinistra il consumo, a destra la regolarità. Il valore salvato è il peso della regolarità (overWeight).
 const levTxt = w => `${fmtN(100 - w)}% consumo · ${fmtN(w)}% regolarità`;
@@ -34,7 +34,7 @@ function leverBind(el, onSet) {
 }
 const overMode = r => (OVER.some(o => o[0] === r.overMode) ? r.overMode : "reg");
 const SELL_MONTHS = [2, 3, 4, 6, 9, 12], SELL_PROB = [50, 60, 70, 80, 90, 95, 99];
-const overTxt = r => ({ dyn: `aumento dinamico (rivendita entro ${mm(r.sellMonths)}, certezza minima ${fmtN(r.sellProb)}%)`, cons: "aumento per consumo",
+const overTxt = r => ({ dyn: `aumento dinamico (rivendita entro ${mm(r.sellMonths)}, probabilità minima di vendita ${fmtN(r.sellProb)}%)`, cons: "aumento per consumo",
   mix: `aumento misto (${levTxt(r.overWeight)})`, reg: "aumento per regolarità" })[overMode(r)];
 const overTitle = (mode, r) => (mode !== "free" || !r ? "" : " · " + ({ dyn: `aumento dinamico (${mm(r.sellMonths)}, ${fmtN(r.sellProb)}%)`, cons: "aumento per consumo",
   mix: `aumento misto (${levTxt(r.overWeight)})`, reg: "aumento per regolarità" })[overMode(r)]);
@@ -42,7 +42,7 @@ const OVER_DESC = {
   cons: "Per consumo: tutti i codici salgono degli stessi mesi di scorta; la regolarità non conta.",
   reg: "Per regolarità: i mesi di scorta in più crescono con la regolarità. Un codice che vende un mese su due riceve la metà dei mesi di uno che vende tutti i mesi.",
   mix: "Misto: con la leva scegli il bilanciamento tra consumo e regolarità. Tutta a sinistra è come per consumo, tutta a destra come per regolarità.",
-  dyn: "Dinamico: si comprano prima i pezzi più sicuri da rivendere. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente." };
+  dyn: "Dinamico: si comprano prima i pezzi più probabili da vendere. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente." };
 // probabilità scritta per difetto, così un pezzo sotto la soglia non sembra mai sopra
 const probTxt = v => (v >= 0.995 ? "oltre 99%" : v < 0.01 ? "meno di 1%" : Math.floor(v * 100 + 1e-9) + "%");
 const SCENARI = {
@@ -165,12 +165,12 @@ function whyHtml(l) {
     if (p3 && p3.dyn && c.sell) {
       // aumento dinamico: la probabilità di vendere il primo e l'ultimo pezzo comprato, e quella del pezzo a cui ci si è fermati
       const H = mesi(c.sell.months), last = p3.from + p3.qty - 1;
-      const intro = `Oltre la SMax, aumento dinamico: si comprano prima i pezzi più sicuri da rivendere. A quel ritmo in ${H} vende in media circa ${n1(p3.mu)} pezzi; con quelli fin qui ne ha ${fmtN(p3.from - 1)}.`;
+      const intro = `Oltre la SMax, aumento dinamico: si comprano prima i pezzi più probabili da vendere. A quel ritmo in ${H} vende in media circa ${n1(p3.mu)} pezzi; con quelli fin qui ne ha ${fmtN(p3.from - 1)}.`;
       if (p3.qty > 0) {
         li.push(intro);
-        li.push(`Probabilità di vendere entro ${H} il pezzo numero ${fmtN(p3.from)}: ${probTxt(p3.pFirst)}.${p3.qty > 1 ? ` Il numero ${fmtN(last)}: ${probTxt(p3.pLast)}.` : ""}${p3.pNext == null ? "" : p3.stop === "soglia" ? ` Il numero ${fmtN(last + 1)}: ${probTxt(p3.pNext)}, sotto la certezza minima (${fmtN(c.sell.prob)}%): lì si ferma.` : ` Il numero ${fmtN(last + 1)} avrebbe ${probTxt(p3.pNext)}, ma l'importo è finito prima.`} Riceve <b>${pezzi(p3.qty)}</b>.`);
+        li.push(`Probabilità di vendere entro ${H} il pezzo numero ${fmtN(p3.from)}: ${probTxt(p3.pFirst)}.${p3.qty > 1 ? ` Il numero ${fmtN(last)}: ${probTxt(p3.pLast)}.` : ""}${p3.pNext == null ? "" : p3.stop === "soglia" ? ` Il numero ${fmtN(last + 1)}: ${probTxt(p3.pNext)}, sotto la probabilità minima di vendita (${fmtN(c.sell.prob)}%): lì si ferma.` : ` Il numero ${fmtN(last + 1)} avrebbe ${probTxt(p3.pNext)}, ma l'importo è finito prima.`} Riceve <b>${pezzi(p3.qty)}</b>.`);
         if (p3.stop === "tetto") li.push(p3.tcap ? `Si ferma al tetto di copertura di ${mesi(p3.tcap)}.` : c.limit ? `Si ferma al tetto di ${mesi(c.limit)} di vendite medie oltre la SMax.` : "Si ferma al suo massimo.");
-      } else if (p3.pNext != null) li.push(`${intro} Probabilità di vendere entro ${H} il pezzo numero ${fmtN(p3.from)}: ${probTxt(p3.pNext)}${p3.stop === "soglia" ? `, sotto la certezza minima (${fmtN(c.sell.prob)}%)` : ": l'importo è finito sui pezzi più sicuri"}. Oltre la SMax non riceve niente.`);
+      } else if (p3.pNext != null) li.push(`${intro} Probabilità di vendere entro ${H} il pezzo numero ${fmtN(p3.from)}: ${probTxt(p3.pNext)}${p3.stop === "soglia" ? `, sotto la probabilità minima di vendita (${fmtN(c.sell.prob)}%)` : ": l'importo è finito sui pezzi più probabili da vendere"}. Oltre la SMax non riceve niente.`);
       else li.push("Oltre la SMax non riceve niente: è già al suo tetto.");
     } else if (p3 && c.level3 != null) {
       // per consumo, per regolarità o misto: ognuno sale degli stessi mesi della propria misura

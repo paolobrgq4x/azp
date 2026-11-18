@@ -75,7 +75,7 @@ function renderProposal(sel = "#ores", recalc) {
     notes.push(`<div class="msg">${parts.length ? "Come è composto l'ordine: " + parts.join("; ") + "." : "Nessun acquisto possibile con l'importo e i codici scelti."}</div>`);
     if (S.left >= 1 && S.prop.full && S.mode === "amount") notes.push(`<div class="msg err">Tutti i codici sono arrivati alla SMax: restano <b>${fmtE(S.left)}</b> non spesi. Per spenderli serve lo scenario «${esc(SCENARI.free.t)}», che può superare la SMax.</div>`);
     if (S.left >= 1 && S.mode === "free" && S.extra && S.extra.full) notes.push(`<div class="msg err">${S.extra.mode === "dyn" && S.extra.stop === "soglia"
-      ? `Aumento dinamico: con certezza minima ${fmtN(S.extra.prob)}% entro ${mm(S.extra.months)} non ci sono altri pezzi da comprare. Restano <b>${fmtE(S.left)}</b> non spesi: oltre questa cifra il rischio di non rivendere supera quello che hai scelto. Per spenderli abbassa la certezza minima, allunga i mesi oppure allarga i codici.`
+      ? `Aumento dinamico: con probabilità minima di vendita ${fmtN(S.extra.prob)}% entro ${mm(S.extra.months)} non ci sono altri pezzi da comprare. Restano <b>${fmtE(S.left)}</b> non spesi: oltre questa cifra il rischio di non rivendere supera quello che hai scelto. Per spenderli abbassa la probabilità minima di vendita, allunga i mesi oppure allarga i codici.`
       : S.extra.mode === "dyn" && S.extra.stop === "limite"
       ? `Aumento dinamico: il calcolo si è fermato al numero massimo di pezzi che può assegnare. Restano <b>${fmtE(S.left)}</b> non spesi: controlla l'importo e i consumi dei codici.`
       : S.extra.limit

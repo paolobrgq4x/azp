@@ -42,7 +42,7 @@ Nell'importo libero chi ordina sceglie come salire oltre la SMax (regola `overMo
 - **Aumento per consumo** (`cons`) — misura = consumo medio: tutti salgono degli stessi mesi di scorta.
 - **Aumento per regolarità** (`reg`, predefinito; il vecchio `lin`) — misura = consumo × regolarità ÷ 12: i mesi di scorta in più crescono con la regolarità.
 - **Aumento misto** (`mix`) — misura = consumo × (regolarità ÷ 12)^peso, con il peso della regolarità scelto da chi ordina (`overWeight`, da 0 a 100% a passi di 10), scelto con una leva: a sinistra il consumo (0% = per consumo), a destra la regolarità (100% = per regolarità).
-- **Aumento dinamico** (`dyn`) — per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti (`sellMonths`: 2, 3, 4, 6, 9 o 12); si comprano i pezzi dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la certezza minima (`sellProb`: dal 50 al 99%). Quello che resta sotto la certezza minima non viene speso, e la pagina lo dice.
+- **Aumento dinamico** (`dyn`) — per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti (`sellMonths`: 2, 3, 4, 6, 9 o 12); si comprano i pezzi dal più probabile da vendere al meno probabile, finché dura l'importo e finché la probabilità resta sopra la probabilità minima di vendita (`sellProb`: dal 50 al 99%). Quello che resta sotto la probabilità minima di vendita non viene speso, e la pagina lo dice.
 
 Fino alla SMax e nel dinamico la regolarità pesa sempre al 100% (`regWeight` resta al valore iniziale); oltre la SMax i primi tre modi usano il proprio peso.
 
