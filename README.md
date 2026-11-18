@@ -35,6 +35,10 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 
 I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
 
+## Conferma dell'ordine: quantità modificabili
+
+Nella proposta da confermare ogni riga ha la quantità in un campo modificabile. Cambiandola si aggiornano subito valore della riga, copertura dopo l'ordine e totali, e la riga viene accettata (a zero, rifiutata). La quantità proposta resta indicata sotto il campo; se supera la SMax compare l'avviso «Oltre SMax». Le modifiche restano nel browser finché la proposta di quel codice non cambia; «Torna alle quantità proposte» le annulla. L'Excel dell'ordine confermato riporta quantità proposta, quantità scelta e «Modificata a mano»; nel PDF le quantità cambiate hanno l'asterisco.
+
 ## Quali giacenze si usano
 
 Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la situazione al momento dell'estrazione.

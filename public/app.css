@@ -373,3 +373,10 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .missbox .check{clear:both;padding-bottom:4px;align-items:flex-start}
 .missbox .check input{margin-top:3px;flex:none}
 .scen-title p{margin:2px 0 0}
+/* Quantità modificabile nella proposta */
+.qcell{white-space:nowrap}
+.qin{width:76px;font:700 14px var(--f-body);text-align:right;padding:5px 7px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink);font-variant-numeric:tabular-nums}
+.qin.ed{border-color:var(--info);background:var(--info-soft)}
+.qin:focus{outline:2px solid var(--info);outline-offset:1px}
+.qcell .sub{display:block;margin-top:2px}
+.decsum .link{margin-top:2px;align-self:flex-start}

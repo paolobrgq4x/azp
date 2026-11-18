@@ -971,6 +971,8 @@ const covTxt = v => v == null ? "–" : fmtN(v, 1);
 function decKey(R) { return `ig_dec_${state.dealerId}_${R.week}_${R.at || ""}_${R.title}`; }
 function lineAlerts(l, th) {
   const a = [];
+  // quantità cambiata a mano oltre la SMax: si segnala sempre, anche quando la copertura è nei limiti
+  if (l.edited && l.smax > 0 && l.disp + l.qty > l.smax) a.push(`Oltre la SMax di ${fmtN(l.disp + l.qty - l.smax)} pezzi dopo la modifica`);
   if (!(l.cons_mese > 0)) a.push("Nessuna domanda registrata: copertura non calcolabile");
   else if (Math.round(l.cover_after * 10) / 10 > th) a.push(`Copertura dopo l'ordine ${fmtN(l.cover_after, 1)} mesi (oltre ${fmtN(th)})`);
   return a;
@@ -1014,31 +1016,43 @@ function freezeTable(t) {
 }
 let freezeTimer;
 window.addEventListener("resize", () => { clearTimeout(freezeTimer); freezeTimer = setTimeout(() => { if (freezeActive) freezeActive(); }, 150); });
+/* Quantità cambiate a mano nella proposta: R.qedit[codice] = { q: quantità scelta, p: quantità proposta quando è stata cambiata }.
+ * Valgono solo finché la proposta di quel codice resta la stessa: se le regole la cambiano, la modifica decade.
+ * La riga effettiva ha la quantità scelta, con valore e copertura dopo l'ordine ricalcolati; qty_prop è la quantità proposta. */
+const QMAX = 99999;
+function effLine(R, l) {
+  const e = R.qedit && R.qedit[l.code];
+  if (!e || e.p !== l.qty || e.q === l.qty) return { ...l, qty_prop: l.qty, edited: false };
+  return { ...l, qty: e.q, qty_prop: l.qty, edited: true, value: e.q * l.cost, cover_after: l.cons_eff > 0 ? (l.disp + e.q) / l.cons_eff : null };
+}
 function renderDecision(host, R, recalc, sel = "#ores") {
   // le decisioni restano legate alla quantità: se le regole cambiano la quantità, la riga torna da decidere
   if (!R.dec) {
-    R.dec = {}; R.decq = {};
-    try { const sv = JSON.parse(localStorage.getItem(decKey(R)) || "null"); if (sv && sv.dec) { R.dec = sv.dec; R.decq = sv.q || {}; } else if (sv) R.dec = sv; } catch (e) {}
+    R.dec = {}; R.decq = {}; R.qedit = {};
+    try { const sv = JSON.parse(localStorage.getItem(decKey(R)) || "null"); if (sv && sv.dec) { R.dec = sv.dec; R.decq = sv.q || {}; R.qedit = sv.e && typeof sv.e === "object" ? sv.e : {}; } else if (sv) R.dec = sv; } catch (e) {}
     const qty = new Map(R.lines.map(l => [l.code, l.qty]));
     Object.keys(R.dec).forEach(c => { if (R.decq[c] != null && R.decq[c] !== qty.get(c)) { delete R.dec[c]; delete R.decq[c]; } });
+    Object.keys(R.qedit).forEach(c => { const e = R.qedit[c]; if (!e || !Number.isInteger(e.q) || e.q < 0 || e.q > QMAX || e.p !== qty.get(c)) delete R.qedit[c]; });
   }
-  const saveDec = () => { R.decq = Object.fromEntries(R.lines.filter(l => R.dec[l.code]).map(l => [l.code, l.qty])); try { localStorage.setItem(decKey(R), JSON.stringify({ dec: R.dec, q: R.decq })); } catch (e) {} };
+  const saveDec = () => { R.decq = Object.fromEntries(R.lines.filter(l => R.dec[l.code]).map(l => [l.code, l.qty])); try { localStorage.setItem(decKey(R), JSON.stringify({ dec: R.dec, q: R.decq, e: R.qedit })); } catch (e) {} };
   R.decFilter = R.decFilter || "tutte"; R.decShow = R.decShow || 100;
   const th = rules().alertMonths;
-  const rows = R.lines.map(l => ({ l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }));
+  const rows = R.lines.map(l0 => { const l = effLine(R, l0); return { l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }; });
+  const nEd = rows.filter(r => r.l.edited).length;
   const cnt = { tutte: rows.length, alert: rows.filter(r => r.al.length).length, todo: rows.filter(r => !r.d).length, si: rows.filter(r => r.d === "si").length, no: rows.filter(r => r.d === "no").length };
   const acc = rows.filter(r => r.d === "si"), accV = acc.reduce((t, r) => t + r.l.value, 0), accQ = acc.reduce((t, r) => t + r.l.qty, 0);
   const vis = rows.filter(r => R.decFilter === "tutte" || (R.decFilter === "alert" && r.al.length) || (R.decFilter === "todo" && !r.d) || r.d === R.decFilter);
   const grpTxt = l => `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim();
   const filters = [["tutte", "Tutte"], ["alert", "Con avviso"], ["todo", "Da decidere"], ["si", "Accettate"], ["no", "Rifiutate"]];
-  host.innerHTML = `<div class="bar"><div><h2>Proposta d'acquisto da confermare</h2><p class="small muted">Per ogni riga scegli <b>Sì</b> o <b>No</b> nell'ultima colonna. Codice e colonne da «Proposta» in poi restano fermi mentre scorri la tabella. Tocca una quantità per vedere come è stata calcolata. Quando hai deciso tutte le righe puoi scaricare l'ordine confermato in Excel o PDF.</p></div>
+  host.innerHTML = `<div class="bar"><div><h2>Proposta d'acquisto da confermare</h2><p class="small muted">Per ogni riga scegli <b>Sì</b> o <b>No</b> nell'ultima colonna. Puoi cambiare la quantità: valore della riga, copertura e totali si aggiornano subito, e cambiare la quantità accetta la riga. Codice e colonne da «Quantità» in poi restano fermi mentre scorri la tabella. «Perché» mostra come è stata calcolata la proposta. Quando hai deciso tutte le righe puoi scaricare l'ordine confermato in Excel o PDF.</p></div>
       <label class="field" for="alth">Avviso se la copertura dopo l'ordine supera<select id="alth">${[1, 2, 3, 4, 6, 9, 12].map(v => `<option value="${v}"${v === th ? " selected" : ""}>${v} ${v === 1 ? "mese" : "mesi"}</option>`).join("")}</select></label></div>
     <div class="decsum"><div><span class="k">Righe decise</span><b>${fmtN(cnt.si + cnt.no)} / ${fmtN(cnt.tutte)}</b></div><div><span class="k">Accettate</span><b>${fmtN(cnt.si)} righe · ${fmtN(accQ)} pezzi · ${fmtE(accV)}</b></div>
          <div><span class="k">Rifiutate</span><b>${fmtN(cnt.no)} righe</b></div><div><span class="k">Con avviso</span><b class="${cnt.alert ? "alerttxt" : ""}">${fmtN(cnt.alert)} righe</b></div>
+         <div><span class="k">Quantità cambiate</span><b>${fmtN(nEd)} righe</b>${nEd ? `<button class="link small" type="button" id="qreset">Torna alle quantità proposte</button>` : ""}</div>
     </div>
     <div class="bar"><div class="chips" role="group" aria-label="Filtra le righe">${filters.map(([k, l]) => `<button type="button" class="chip" data-df="${k}" aria-pressed="${R.decFilter === k}">${l}<span class="n">${fmtN(cnt[k])}</span></button>`).join("")}</div>
       <div class="row"><button class="btn sm" type="button" data-bulk="okNoAlert">Sì a tutte senza avviso</button><button class="btn sm" type="button" data-bulk="noAlert">No a tutte con avviso</button><button class="btn sm" type="button" data-bulk="allSi">Sì a tutte</button><button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
-    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Proposta</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th></th><th>Accetto</th></tr></thead><tbody>
+    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Quantità</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th></th><th>Accetto</th></tr></thead><tbody>
       ${vis.slice(0, R.decShow).map(({ l, al, d }) => `<tr class="${d ? "d-" + d : ""}${al.length ? " has-al" : ""}"><td class="num muted">${l.rank}</td>
         <td class="code"><button type="button" data-c="${esc(l.code)}">${esc(l.code)}</button></td>
         <td class="desc" title="${esc(l.reasons.join(", "))}">${esc(l.descr)}</td>
@@ -1047,9 +1061,10 @@ function renderDecision(host, R, recalc, sel = "#ores") {
         ${moveCells(l)}
         <td class="num">${l.listino != null ? fmtE2(l.listino) : "–"}</td><td class="num">${fmtE2(l.cost)}</td>
         <td class="num">${covTxt(l.cover_before)}${l.cover_before != null ? " mesi" : ""}</td>
-        <td class="num"><button type="button" class="qbtn" data-why="${esc(l.code)}" aria-expanded="${R.why === l.code}" title="Come è calcolata">${fmtN(l.qty)}</button>${l.partial ? `<span class="sub">parziale</span>` : ""}</td><td class="num">${fmtE2(l.value)}</td>
+        <td class="num qcell"><input class="qin${l.edited ? " ed" : ""}" type="number" inputmode="numeric" min="0" max="${QMAX}" step="1" value="${l.qty}" data-qe="${esc(l.code)}" aria-label="Quantità di ${esc(l.code)}">
+          <span class="sub">${l.edited ? `proposta ${fmtN(l.qty_prop)}` : l.partial ? "parziale" : ""} <button type="button" class="link small" data-why="${esc(l.code)}" aria-expanded="${R.why === l.code}">perché</button></span></td><td class="num">${fmtE2(l.value)}</td>
         <td class="num">${covTxt(l.cover_after)}${l.cover_after != null ? " mesi" : ""}</td>
-        <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(al[0].startsWith("Nessuna") ? "Senza domanda" : "Oltre " + fmtN(th) + " mesi")}</span>` : ""}</td>
+        <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(alShort(al, th))}</span>` : ""}</td>
         <td><button class="link small" type="button" data-od="${esc(l.code)}" title="Escludi questo codice da tutti gli scenari">su richiesta</button></td>
         <td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td></tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="21"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
     </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
@@ -1060,11 +1075,34 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   $("#alth", host).onchange = e => { rules().alertMonths = +e.target.value; saveRules(); renderProposal(sel, recalc); };
   $$("[data-df]", host).forEach(b => b.onclick = () => { R.decFilter = b.dataset.df; R.decShow = 100; rer(); });
   $$("[data-why]", host).forEach(b => b.onclick = () => { R.why = R.why === b.dataset.why ? null : b.dataset.why; rer(); });
+  // quantità cambiata a mano: si applica quando si esce dal campo (o con Invio), poi la tabella si ridisegna
+  // e il cursore torna dove l'utente era andato (per esempio con Tab sulla riga successiva)
+  const qins = $$("[data-qe]", host);
+  const focusQ = code => { const n = code && $(`[data-qe="${CSS.escape(code)}"]`, host); if (n) { n.focus(); n.select(); } };
+  // applica la quantità scritta; «go» è il codice su cui portare il cursore dopo (Tab e Maiusc+Tab passano da una quantità all'altra)
+  const commitQ = (inp, go) => {
+    const c = inp.dataset.qe, l = R.lines.find(x => x.code === c); if (!l) return;
+    const v = Math.round(numVal(inp.value)), cur = effLine(R, l).qty;
+    if (!Number.isFinite(v) || v < 0 || v > QMAX) { toast(`Quantità non valida: scrivi un numero intero da 0 a ${fmtN(QMAX)}.`); inp.value = cur; return; }
+    if (v === cur) { if (go) focusQ(go); return; }
+    if (v === l.qty) delete R.qedit[c]; else R.qedit[c] = { q: v, p: l.qty };
+    R.dec[c] = v > 0 ? "si" : "no";
+    saveDec(); inp.onchange = null; rer(); focusQ(go);
+  };
+  qins.forEach((inp, i) => {
+    inp.onkeydown = e => {
+      if (e.key === "Enter") { e.preventDefault(); commitQ(inp, inp.dataset.qe); }
+      else if (e.key === "Tab") { const t = qins[i + (e.shiftKey ? -1 : 1)]; if (t) { e.preventDefault(); commitQ(inp, t.dataset.qe); } }
+    };
+    inp.onchange = () => commitQ(inp, null);
+  });
+  if ($("#qreset", host)) $("#qreset", host).onclick = async () => { if (!await confirmBox("Tornare alle quantità proposte?", "Le quantità cambiate a mano verranno annullate; le decisioni Sì/No restano.", "Annulla le modifiche", true)) return; R.qedit = {}; saveDec(); rer(); };
   $$("[data-yn]", host).forEach(b => b.onclick = () => { const c = b.dataset.code; R.dec[c] = R.dec[c] === b.dataset.yn ? "" : b.dataset.yn; if (!R.dec[c]) delete R.dec[c]; saveDec(); rer(); });
   $$("[data-bulk]", host).forEach(b => b.onclick = async () => {
     const k = b.dataset.bulk;
-    if (k === "reset") { if (!await confirmBox("Azzerare le decisioni?", "Tutte le righe torneranno da decidere.", "Azzera", true)) return; R.dec = {}; }
-    else rows.forEach(r => { if (k === "allSi" || (k === "okNoAlert" && !r.al.length)) { if (!R.dec[r.l.code] || k === "allSi") R.dec[r.l.code] = "si"; } else if (k === "noAlert" && r.al.length) R.dec[r.l.code] = "no"; });
+    if (k === "reset") { if (!await confirmBox("Azzerare le decisioni?", "Tutte le righe torneranno da decidere e alle quantità proposte.", "Azzera", true)) return; R.dec = {}; R.qedit = {}; }
+    // una riga portata a zero resta rifiutata: non c'è niente da ordinare
+    else rows.forEach(r => { if (r.l.qty === 0) { R.dec[r.l.code] = "no"; return; } if (k === "allSi" || (k === "okNoAlert" && !r.al.length)) { if (!R.dec[r.l.code] || k === "allSi") R.dec[r.l.code] = "si"; } else if (k === "noAlert" && r.al.length) R.dec[r.l.code] = "no"; });
     saveDec(); rer();
   });
   if ($("#dmore", host)) $("#dmore", host).onclick = () => { R.decShow += 200; rer(); };
@@ -1081,18 +1119,19 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   $("#dxls", host).onclick = () => exportConfirmedXls(R, rows);
   $("#dpdf", host).onclick = () => exportConfirmedPdf(R, rows);
 }
+const alShort = (al, th) => (al[0].startsWith("Oltre la SMax") ? "Oltre SMax" : al[0].startsWith("Nessuna") ? "Senza domanda" : "Oltre " + fmtN(th) + " mesi");
 function confirmedRows(rows) {
   const th = rules().alertMonths;
-  return rows.filter(r => r.d === "si").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "DG": l.dg || "",
+  return rows.filter(r => r.d === "si" && r.l.qty > 0).map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Gruppo principale": `${l.grp} ${GROUPS[l.grp] || ""}`.trim(), "DG": l.dg || "",
     "Giacenza attuale": l.giac, "Ordini aperti": l.ord, "SMin": l.smin, "SMax": l.smax, "Venduto recente": l.qty_sold != null ? l.qty_sold : "", "Vendite speciali": l.ven_spc != null ? l.ven_spc : "",
     "Ultima vendita": l.last_sale ? dIt(l.last_sale) : "", "Consumo medio mensile": l.cons_mese || "", "Regolarità vendite (0-11,99)": l.regolarita || "", "Giacenza caricamento precedente": l.prev_giac != null ? l.prev_giac : "",
     "Prezzo listino": l.listino != null ? l.listino : "", "Prezzo netto": l.cost,
-    "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità": l.qty,
+    "Copertura attuale (mesi)": l.cover_before == null ? "" : Math.round(l.cover_before * 10) / 10, "Quantità proposta": l.qty_prop != null ? l.qty_prop : l.qty, "Quantità": l.qty, "Modificata a mano": l.edited ? "Sì" : "",
     "Valore netto": Math.round(l.value * 100) / 100, "Valore listino": l.listino != null ? Math.round(l.listino * l.qty * 100) / 100 : "",
     "Copertura dopo (mesi)": l.cover_after == null ? "" : Math.round(l.cover_after * 10) / 10, "Avviso": al.join(" · "), "Come è calcolata": whyText(l) }));
 }
 function orderMeta(R, rows) {
-  const u = state.me.user, accepted = rows ? rows.filter(r => r.d === "si").map(r => r.l) : R.lines.filter(l => R.dec[l.code] === "si");
+  const u = state.me.user, accepted = (rows ? rows.filter(r => r.d === "si").map(r => r.l) : R.lines.filter(l => R.dec[l.code] === "si").map(l => effLine(R, l))).filter(l => l.qty > 0);
   return { dealer: dealerName(state.dealerId), week: snapLabel(R.week, R.at), stock: stockNote(R), scen: R.title, user: u.full_name || u.username, date: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }),
     n: accepted.length, q: accepted.reduce((t, l) => t + l.qty, 0), v: accepted.reduce((t, l) => t + l.value, 0), vl: accepted.reduce((t, l) => t + (l.listino || 0) * l.qty, 0),
     rejected: R.lines.length - accepted.length };
@@ -1101,10 +1140,10 @@ function exportConfirmedXls(R, rows) {
   const M = orderMeta(R, rows), data = confirmedRows(rows), wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(data); ws["!cols"] = Object.keys(data[0]).map(k => ({ wch: Math.max(11, k.length + 2) }));
   XLSX.utils.book_append_sheet(wb, ws, "Ordine confermato");
-  const rej = rows.filter(r => r.d === "no").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Quantità proposta": l.qty, "Valore netto": Math.round(l.value * 100) / 100, "Avviso": al.join(" · ") }));
+  const rej = rows.filter(r => r.d === "no" || (r.d === "si" && r.l.qty === 0)).map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Quantità proposta": l.qty_prop != null ? l.qty_prop : l.qty, "Valore netto": Math.round(l.value * 100) / 100, "Avviso": al.join(" · ") }));
   if (rej.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rej), "Righe non accettate");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati del", M.week], ["Giacenze", M.stock], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
-    ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
+    ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Quantità cambiate a mano", rows.filter(r => r.d === "si" && r.l.edited && r.l.qty > 0).length], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
   XLSX.writeFile(wb, `ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.xlsx`);
 }
 function exportConfirmedPdf(R, rows) {
@@ -1118,9 +1157,10 @@ function exportConfirmedPdf(R, rows) {
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
-  const body = rows.filter(r => r.d === "si").map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax), l.cons_mese ? fmtN(l.cons_mese, 2) : "–", l.regolarita ? fmtN(l.regolarita, 2) : "–",
+  const conf = rows.filter(r => r.d === "si" && r.l.qty > 0), nEd = conf.filter(r => r.l.edited).length;
+  const body = conf.map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax), l.cons_mese ? fmtN(l.cons_mese, 2) : "–", l.regolarita ? fmtN(l.regolarita, 2) : "–",
     [l.qty_sold != null ? fmtN(l.qty_sold) : "", l.last_sale ? dIt(l.last_sale) : ""].filter(Boolean).join(" · ") || "–", l.listino != null ? fmtE2(l.listino) : "–", fmtE2(l.cost),
-    covTxt(l.cover_before), fmtN(l.qty), fmtE2(l.value), covTxt(l.cover_after), al.length ? (al[0].startsWith("Nessuna") ? "Senza domanda" : `Oltre ${fmtN(th)} mesi`) : ""]);
+    covTxt(l.cover_before), l.edited ? `${fmtN(l.qty)} *` : fmtN(l.qty), fmtE2(l.value), covTxt(l.cover_after), al.length ? alShort(al, th) : ""]);
   doc.autoTable({
     startY: 49, head: [["Codice", "Descrizione", "Gruppo", "Giacenza", "SMin", "SMax", "Consumo (pz/mese)", "Regolarità", "Venduto / ult. vendita", "Listino", "Netto", "Cop. attuale (mesi)", "Quantità", "Valore netto", "Cop. dopo (mesi)", "Avviso"]], body,
     foot: [["Totale", "", "", "", "", "", "", "", "", "", "", "", fmtN(M.q), fmtE2(M.v), "", ""]], showFoot: "lastPage",
@@ -1129,7 +1169,9 @@ function exportConfirmedPdf(R, rows) {
     alternateRowStyles: { fillColor: [247, 249, 250] }, margin: { left: 14, right: 14 },
     didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Parts Planning", 14, doc.internal.pageSize.getHeight() - 8); }
   });
-  const y = doc.lastAutoTable.finalY + 14;
+  let y = doc.lastAutoTable.finalY + 8;
+  if (nEd) { doc.setFontSize(8); doc.setTextColor(80); doc.text(`* Quantità cambiata a mano rispetto alla proposta (${fmtN(nEd)} ${nEd === 1 ? "riga" : "righe"}); l'Excel riporta anche la quantità proposta.`, 14, y); }
+  y += 8;
   if (y < doc.internal.pageSize.getHeight() - 20) { doc.setFontSize(9.5); doc.setTextColor(40); doc.text("Firma del responsabile di magazzino: ______________________________", 14, y); }
   doc.save(`ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.pdf`);
 }
