@@ -35,7 +35,7 @@ function describeScenario(P) {
   if (F.abc.length) parts.push("classe " + F.abc.map(c => c === "N" ? "senza consumo" : c).join("/"));
   if (F.dg.length) parts.push("DG " + F.dg.join(", "));
   if (F.q) parts.push(`«${F.q}»`);
-  if (F.codes && F.codes.length) parts.push(`elenco di ${fmtN(F.codes.length)} codici`);
+  if (F.codes && F.codes.length) parts.push(`elenco di ${codici(F.codes.length)}`);
   if (P.minDemand) parts.push(`consumo ≥ ${fmtN(P.minDemand, 2)} pz/mese`);
   return parts.join(" · ");
 }
@@ -62,13 +62,13 @@ function renderProposal(sel = "#ores", recalc) {
   const R = state.ordine.result, S = R.summary, host = $(sel); if (!host) return;
   const pct = (a, b) => b ? Math.round(a / b * 100) + "%" : "–";
   const amt = S.mode !== "cover", notes = [];
-  if (!amt && S.cut && S.cut.n) notes.push(`<div class="msg">La SMax frena <b>${fmtN(S.cut.n)}</b> codici: per coprire ${esc(orizzLabel(S.months))} servirebbero altri <b>${pezzi(S.cut.pieces)}</b> (${fmtE(S.cut.value)}), che porterebbero la giacenza oltre la SMax. Se succede spesso sugli stessi codici, la loro SMax è più bassa della domanda.</div>`);
+  if (!amt && S.cut && S.cut.n) notes.push(`<div class="msg">La SMax frena <b>${codici(S.cut.n)}</b>: per coprire ${esc(orizzLabel(S.months))} servirebbero altri <b>${pezzi(S.cut.pieces)}</b> (${fmtE(S.cut.value)}), che porterebbero la giacenza oltre la SMax. Se succede spesso sugli stessi codici, la loro SMax è più bassa della domanda.</div>`);
   if (amt) {
-    const parts = [S.smin.n ? `<b>${fmtE(S.smin.value)}</b> riportano alla SMin ${fmtN(S.smin.n)} codici` : "",
-      S.prop.n ? `<b>${fmtE(S.prop.value)}</b> sono divisi in proporzione alle vendite regolari su ${fmtN(S.prop.n)} codici${S.prop.full ? ", tutti arrivati alla SMax" : `: ${fmtN(S.prop.level, 2)} mesi di vendita regolare per ciascuno, salvo chi si è fermato prima alla SMax`}` : "",
+    const parts = [S.smin.n ? `<b>${fmtE(S.smin.value)}</b> riportano alla SMin ${codici(S.smin.n)}` : "",
+      S.prop.n ? `<b>${fmtE(S.prop.value)}</b> sono divisi in proporzione alle vendite regolari su ${codici(S.prop.n)}${S.prop.full ? ", tutti arrivati alla SMax" : `: ${fmtN(S.prop.level, 2)} mesi di vendita regolare per ciascuno, salvo chi si è fermato prima alla SMax`}` : "",
       S.extra && S.extra.n ? (S.extra.mode === "dyn"
-        ? `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${fmtN(S.extra.n)} codici con l'aumento dinamico: probabilità di vendita entro ${mm(S.extra.months)} di ogni pezzo comprato, almeno ${probTxt(S.extra.level).replace("oltre ", "")}`
-        : `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${fmtN(S.extra.n)} codici con l'${overTxt({ overMode: S.extra.mode === "lin" ? "reg" : S.extra.mode, overWeight: S.extra.w })}: ${S.extra.mode === "cons"
+        ? `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${codici(S.extra.n)} con l'aumento dinamico: probabilità di vendita entro ${mm(S.extra.months)} di ogni pezzo comprato, almeno ${probTxt(S.extra.level).replace("oltre ", "")}`
+        : `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${codici(S.extra.n)} con l'${overTxt({ overMode: S.extra.mode === "lin" ? "reg" : S.extra.mode, overWeight: S.extra.w })}: ${S.extra.mode === "cons"
           ? `tutti salgono di altri ${fmtN(S.extra.level, 2)} mesi di scorta`
           : `altri ${fmtN(S.extra.level, 2)} mesi ${S.extra.mode === "mix" ? "di vendita pesata" : "di vendita regolare"} per ciascuno`}, salvo chi si è fermato prima a un tetto`) : ""].filter(Boolean);
     if (S.smin.short) notes.push(`<div class="msg err">L'importo non basta per riportare alla SMin tutti i codici che sono sotto: ne restano fuori <b>${fmtN(S.smin.short)}</b>. Passano prima i codici con la regolarità di vendita più alta e, a parità, con il consumo più alto.</div>`);
@@ -88,17 +88,17 @@ function renderProposal(sel = "#ores", recalc) {
   <div id="rbox"></div>
   <section class="tiles">
     <div class="tile"><span class="k">Valore dell'ordine</span><span class="v">${fmtE(S.spent)}</span><span class="s">${amt ? `su ${fmtE(S.budget)} · restano ${fmtE(S.left)}` : `per coprire ${esc(orizzLabel(S.months))} di vendite`}</span></div>
-    <div class="tile neutral"><span class="k">Righe d'ordine</span><span class="v">${fmtN(S.n_lines)}</span><span class="s">${fmtN(S.pieces)} pezzi · ${fmtN(S.n_cands)} codici nel perimetro</span></div>
+    <div class="tile neutral"><span class="k">Righe d'ordine</span><span class="v">${fmtN(S.n_lines)}</span><span class="s">${pezzi(S.pieces)} · ${codici(S.n_cands)} nel perimetro</span></div>
     <div class="tile bad"><span class="k">Codici a zero coperti</span><span class="v">${fmtN(S.zero_cov)}<span class="small muted"> / ${fmtN(S.zero_tot)}</span></span><span class="s">${pct(S.zero_cov, S.zero_tot)} riportati almeno a SMin</span></div>
     <div class="tile warn"><span class="k">Sotto scorta coperti</span><span class="v">${fmtN(S.sotto_cov)}<span class="small muted"> / ${fmtN(S.sotto_tot)}</span></span><span class="s">${pct(S.sotto_cov, S.sotto_tot)} riportati almeno a SMin</span></div>
   </section>
-  ${S.list ? `<div class="msg">Elenco di ${fmtN(S.list.n)} codici: ${fmtN(S.list.found)} trovati nei dati, ${fmtN(S.list.n_missing)} non trovati${S.list.no_need ? `, ${fmtN(S.list.no_need)} già coperti, esclusi o senza fabbisogno` : ""}.${S.list.n_missing ? `<br><span class="small">Non trovati: <span class="mono">${S.list.missing.map(esc).join(", ")}${S.list.n_missing > S.list.missing.length ? "…" : ""}</span></span>` : ""}</div>` : ""}
-  ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low + (S.excluded.minline || 0)) ? `<div class="msg">Esclusi: ${[S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con consumo ma non tenuti a scorta (SMin e SMax a zero)` : "", S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati su richiesta` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : "", S.excluded.minline ? `${fmtN(S.excluded.minline)} righe sotto il valore minimo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
+  ${S.list ? `<div class="msg">Elenco di ${codici(S.list.n)}: ${fmtN(S.list.found)} trovati nei dati, ${fmtN(S.list.n_missing)} non trovati${S.list.no_need ? `, ${fmtN(S.list.no_need)} già coperti, esclusi o senza fabbisogno` : ""}.${S.list.n_missing ? `<br><span class="small">Non trovati: <span class="mono">${S.list.missing.map(esc).join(", ")}${S.list.n_missing > S.list.missing.length ? "…" : ""}</span></span>` : ""}</div>` : ""}
+  ${S.excluded && (S.excluded.flag + S.excluded.noparams + S.excluded.low + (S.excluded.minline || 0)) ? `<div class="msg">Esclusi: ${[S.excluded.noparams ? `${fmtN(S.excluded.noparams)} con consumo ma non tenuti a scorta (SMin e SMax a zero)` : "", S.excluded.flag ? `${fmtN(S.excluded.flag)} segnati su richiesta` : "", S.excluded.low ? `${fmtN(S.excluded.low)} sotto la soglia di consumo` : "", S.excluded.minline ? `${righe(S.excluded.minline)} sotto il valore minimo` : ""].filter(Boolean).join(", ")}.</div>` : ""}
   ${notes.join("\n  ")}
   ${S.by_group.length > 1 ? `<section class="panel"><h3>Valore dell'ordine per gruppo principale</h3><div id="obg"></div></section>` : ""}
   ${R.lines.length ? `<section class="panel" id="odec"></section>` : `<section class="panel"><p class="muted">Nessun codice da ordinare in questo scenario.</p></section>`}`;
   renderRules($("#rbox", host), S.mode, alertOnly => { if (alertOnly) { renderProposal(sel, recalc); return; } if (recalc) recalc(); else $("#of").requestSubmit(); });
-  if ($("#obg", host)) bars($("#obg", host), S.by_group.map(g => ({ label: `${g.id === "X" ? "–" : g.id} ${g.label}`, value: g.value, sub: `${fmtN(g.n)} righe` })), { fmt: fmtE });
+  if ($("#obg", host)) bars($("#obg", host), S.by_group.map(g => ({ label: `${g.id === "X" ? "–" : g.id} ${g.label}`, value: g.value, sub: `${righe(g.n)}` })), { fmt: fmtE });
   if ($("#odec", host)) renderDecision($("#odec", host), R, recalc, sel);
 }
 
@@ -108,7 +108,7 @@ function decKey(R) { return `ig_dec_${state.dealerId}_${R.week}_${R.at || ""}_${
 function lineAlerts(l, th) {
   const a = [];
   // quantità cambiata a mano oltre la SMax: si segnala sempre, anche quando la copertura è nei limiti
-  if (l.edited && l.smax > 0 && l.disp + l.qty > l.smax) a.push(`Oltre la SMax di ${fmtN(l.disp + l.qty - l.smax)} pezzi dopo la modifica`);
+  if (l.edited && l.smax > 0 && l.disp + l.qty > l.smax) a.push(`Oltre la SMax di ${pezzi(l.disp + l.qty - l.smax)} dopo la modifica`);
   if (!(l.cons_mese > 0)) a.push("Nessuna domanda registrata: copertura non calcolabile");
   else if (Math.round(l.cover_after * 10) / 10 > th) a.push(`Copertura dopo l'ordine ${fmtN(l.cover_after, 1)} mesi (oltre ${fmtN(th)})`);
   return a;
@@ -214,9 +214,9 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   const filters = [["tutte", "Tutte"], ["alert", "Con avviso"], ["todo", "Da decidere"], ["si", "Accettate"], ["no", "Rifiutate"]];
   host.innerHTML = `<div class="bar"><div><h2>Proposta d'acquisto da confermare</h2><p class="small muted">Per ogni riga scegli <b>Sì</b> o <b>No</b> nell'ultima colonna. Puoi cambiare la quantità: valore della riga, copertura e totali si aggiornano subito, e cambiare la quantità accetta la riga. Codice e colonne da «Quantità» in poi restano fermi mentre scorri la tabella. «Perché» mostra come è stata calcolata la proposta. Quando hai deciso tutte le righe puoi scaricare l'ordine confermato in Excel o PDF.</p></div>
       <label class="field" for="alth">Avviso se la copertura dopo l'ordine supera<select id="alth">${[1, 2, 3, 4, 6, 9, 12].map(v => `<option value="${v}"${v === th ? " selected" : ""}>${v} ${v === 1 ? "mese" : "mesi"}</option>`).join("")}</select></label></div>
-    <div class="decsum"><div><span class="k">Righe decise</span><b>${fmtN(cnt.si + cnt.no)} / ${fmtN(cnt.tutte)}</b></div><div><span class="k">Accettate</span><b>${fmtN(cnt.si)} righe · ${fmtN(accQ)} pezzi · ${fmtE(accV)}</b></div>
-         <div><span class="k">Rifiutate</span><b>${fmtN(cnt.no)} righe</b></div><div><span class="k">Con avviso</span><b class="${cnt.alert ? "alerttxt" : ""}">${fmtN(cnt.alert)} righe</b></div>
-         <div><span class="k">Quantità cambiate</span><b>${fmtN(nEd)} righe</b>${nEd ? `<button class="link small" type="button" id="qreset">Torna alle quantità proposte</button>` : ""}</div>
+    <div class="decsum"><div><span class="k">Righe decise</span><b>${fmtN(cnt.si + cnt.no)} / ${fmtN(cnt.tutte)}</b></div><div><span class="k">Accettate</span><b>${righe(cnt.si)} · ${pezzi(accQ)} · ${fmtE(accV)}</b></div>
+         <div><span class="k">Rifiutate</span><b>${righe(cnt.no)}</b></div><div><span class="k">Con avviso</span><b class="${cnt.alert ? "alerttxt" : ""}">${righe(cnt.alert)}</b></div>
+         <div><span class="k">Quantità cambiate</span><b>${righe(nEd)}</b>${nEd ? `<button class="link small" type="button" id="qreset">Torna alle quantità proposte</button>` : ""}</div>
     </div>
     <div class="bar"><div class="chips" role="group" aria-label="Filtra le righe">${filters.map(([k, l]) => `<button type="button" class="chip" data-df="${k}" aria-pressed="${R.decFilter === k}">${l}<span class="n">${fmtN(cnt[k])}</span></button>`).join("")}</div>
       <div class="row">${BULK.map(([k, l, i]) => `<span class="bulk"><button class="btn sm" type="button" data-bulk="${k}">${l}</button><button class="ibtn" type="button" data-binfo="${k}" aria-label="Cosa fa «${l}»" aria-expanded="${R.binfo === k}" title="${esc(i)}">i</button></span>`).join("")}<button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
@@ -235,8 +235,8 @@ function renderDecision(host, R, recalc, sel = "#ores") {
         <td class="num">${covTxt(l.cover_after)}${l.cover_after != null ? " mesi" : ""}</td>
         <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(alShort(al, th))}</span>` : ""}</td>
         <td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td></tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="21"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
-    </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
-    <div class="decexp"><div class="small muted" id="dexpmsg">${cnt.todo ? `Mancano <b>${fmtN(cnt.todo)}</b> righe da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${fmtN(cnt.si)} righe, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
+    </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${righe(R.decShow)} su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
+    <div class="decexp"><div class="small muted" id="dexpmsg">${cnt.todo ? `${cnt.todo === 1 ? "Manca" : "Mancano"} <b>${righe(cnt.todo)}</b> da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${righe(cnt.si)}, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
       <div class="row"><button class="btn primary" type="button" id="dxls"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in Excel</button><button class="btn primary" type="button" id="dpdf"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in PDF</button><button class="btn" type="button" id="oxls">Proposta completa in Excel</button></div></div>`;
   // intestazioni ordinabili: freccia sulla colonna scelta
   $$("table.dectab thead th", host).forEach((th, i) => {
@@ -327,7 +327,7 @@ function exportConfirmedPdf(R, rows) {
   doc.text([`Concessionaria: ${M.dealer}`, `Dati del ${M.week} · ${M.stock}`, `${M.scen}`, `Confermato da ${M.user} il ${M.date}`], 14, 23);
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
-  doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
+  doc.text(`${righe(M.n)} · ${pezzi(M.q)} · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
   const conf = rows.filter(r => r.d === "si" && r.l.qty > 0), nEd = conf.filter(r => r.l.edited).length;
   const body = conf.map(({ l, al }) => [l.code, l.descr || "", `${l.grp === "X" ? "–" : l.grp} ${GROUPS[l.grp] || ""}`.trim(), fmtN(l.giac), fmtN(l.smin), fmtN(l.smax), l.cons_mese ? fmtN(l.cons_mese, 2) : "–", l.regolarita ? fmtN(l.regolarita, 2) : "–",
     [l.qty_sold != null ? fmtN(l.qty_sold) : "", l.last_sale ? dIt(l.last_sale) : ""].filter(Boolean).join(" · ") || "–", l.listino != null ? fmtE2(l.listino) : "–", fmtE2(l.cost),
