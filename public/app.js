@@ -224,7 +224,8 @@ window.addEventListener("hashchange", route);
  */
 const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze", "Codici", "Risultato"];
 const ORIZZ = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"]];
-const COVER_MAX = [[0, "nessun limite"], [1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"], [4, "4 mesi"], [5, "5 mesi"], [6, "6 mesi"]];
+// tetto per codice oltre la SMax: da 1 a 6 mesi e, dopo i 6 mesi, «nessun limite» (lo stesso ordine del cursore nelle regole)
+const COVER_MAX = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"], [4, "4 mesi"], [5, "5 mesi"], [6, "6 mesi"], [0, "nessun limite"]];
 const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
 /* Oltre la SMax, nell'importo libero, si sale in uno di due modi, a scelta di chi ordina:
  *  lin  aumento lineare: tutti i codici salgono degli stessi mesi di vendite regolari
