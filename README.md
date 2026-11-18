@@ -107,7 +107,7 @@ In «Dati di prova» il file giacenze si può generare in quattro tracciati dive
   - `js/base.js` — funzioni comuni, accesso, menu e navigazione
   - `js/regole.js` — scenari, modi oltre la SMax, spiegazioni dei calcoli
   - `js/nuovo.js` — percorso guidato del nuovo caricamento
-  - `js/andamento.js` — rete, andamento e analisi
+  - `js/andamento.js` — rete e analisi codici
   - `js/ordine.js` — scenari d'ordine, conferma ed esportazioni Excel/PDF
   - `js/indicatori.js` — indicatori e scheda codice
   - `js/pagina-regole.js` — pagina delle regole

@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · pagine Rete, Andamento e Analisi codici */
+/* Parts Planning · pagine Rete e Analisi codici */
 
 /* ============ Rete (amministratore) ============ */
 function trend(cur, prev, upIsBad = true) {
@@ -28,8 +28,8 @@ async function viewRete(main) {
     <td class="num">${r.snap_id ? fmtE(r.val_tot) : "–"}</td><td class="num">${r.snap_id ? fmtE(r.val_sotto) : "–"}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_eccesso) : "–"}</td><td>${r.snap_id ? trend(r.val_eccesso, r.p_val_eccesso) : ""}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_fermo) : "–"}</td><td>${r.snap_id ? trend(r.val_fermo, r.p_val_fermo) : ""}</td></tr>`).join("")}
-  </tbody></table></div><p class="small muted">Tocca una riga per aprire l'andamento della concessionaria.</p>` : `<p class="muted">Nessuna concessionaria. Aggiungile da <a href="#admin">Amministrazione</a>.</p>`}</section>`;
-  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} location.hash = "#andamento"; });
+  </tbody></table></div><p class="small muted">Tocca una riga per aprire gli indicatori della concessionaria.</p>` : `<p class="muted">Nessuna concessionaria. Aggiungile da <a href="#admin">Amministrazione</a>.</p>`}</section>`;
+  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} location.hash = "#kpi"; });
 }
 
 /* ============ Grafico a linea (piccoli multipli) ============ */
@@ -74,50 +74,6 @@ function lineChart(host, pts, opt) {
 }
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))); const f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
 const axisE = v => Math.abs(v) >= 1e6 ? fmtN(v / 1e6, 1) + "M" : Math.abs(v) >= 1e3 ? fmtN(v / 1e3, 0) + "k" : fmtN(v);
-
-/* ============ Andamento ============ */
-async function viewAndamento(main) {
-  if (needDealer(main)) return;
-  main.innerHTML = `<div class="panel"><p class="muted">Caricamento…</p></div>`;
-  const snaps = await loadSnapshots();
-  const name = dealerName(state.dealerId);
-  if (!snaps.length) {
-    main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Nessun caricamento.</p></div></div>
-      <div class="panel"><p>Carica liste movimentazione e giacenze per vedere l'andamento.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`;
-    return;
-  }
-  const L = snaps[snaps.length - 1], P = snaps.length > 1 ? snaps[snaps.length - 2] : null;
-  const pv = k => P ? P[k] : null;
-  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio<br>${esc(stockNote(L))}${L.perim_n ? ` · perimetro della rete: ${fmtN(L.perim_n)} codici` : ""}</p></div>
-    <div class="row"><a class="btn" href="#analisi">Analizza i codici</a><a class="btn primary" href="#carica">Carica dati</a></div></div>
-  <section class="tiles">
-    <div class="tile"><span class="k">Valore a magazzino</span><span class="v">${fmtE(L.val_tot)}</span><span class="s">${fmtN(L.n_codes)} codici · ${trend(L.val_tot, pv("val_tot"))}</span></div>
-    <div class="tile bad"><span class="k">Sotto scorta</span><span class="v">${fmtN(L.n_sotto)}</span><span class="s">${fmtN(L.pz_sotto)} pezzi · ${fmtE(L.val_sotto)} ${trend(L.val_sotto, pv("val_sotto"))}</span></div>
-    <div class="tile warn"><span class="k">In eccesso</span><span class="v">${fmtN(L.n_eccesso)}</span><span class="s">Eccedenza ${fmtE(L.val_eccesso)} ${trend(L.val_eccesso, pv("val_eccesso"))}</span></div>
-    <div class="tile idle"><span class="k">Fermi senza fabbisogno</span><span class="v">${fmtN(L.n_fermo)}</span><span class="s">${fmtE(L.val_fermo)} ${trend(L.val_fermo, pv("val_fermo"))}</span></div>
-    <div class="tile neutral"><span class="k">Da verificare</span><span class="v">${fmtN(L.n_nogiac + L.n_nostorico)}</span><span class="s">${fmtN(L.n_nogiac)} non in giacenza · ${fmtN(L.n_nostorico)} senza storico</span></div>
-  </section>
-  <section class="charts">
-    <div class="chart" id="c1"></div><div class="chart" id="c2"></div><div class="chart" id="c3"></div><div class="chart" id="c4"></div>
-  </section>
-  <section class="panel"><h2>Caricamenti</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Caricati da</th><th class="num">Codici</th><th class="num">Valore magazzino</th><th class="num">Sotto scorta</th><th class="num">Eccedenze</th><th class="num">Fermo</th><th></th></tr></thead><tbody>
-  ${snaps.slice().reverse().map(s => `<tr><td>${esc(snapLabel(s.week_date, s.uploaded_at))}<br><span class="small muted">${esc(stockShort(s))}</span></td><td class="small">${esc(s.uploaded_by_name || s.uploaded_by_user || "–")}<br><span class="muted">${esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td>
-    <td class="num">${fmtN(s.n_codes)}</td><td class="num">${fmtE(s.val_tot)}</td><td class="num">${fmtN(s.n_sotto)} · ${fmtE(s.val_sotto)}</td><td class="num">${fmtE(s.val_eccesso)}</td><td class="num">${fmtE(s.val_fermo)}</td>
-    <td><div class="row"><button class="btn sm" type="button" data-open="${s.id}">Apri</button>${isAdmin() ? `<button class="btn sm danger" type="button" data-del="${s.id}" data-w="${esc(snapLabel(s.week_date, s.uploaded_at))}">Elimina</button>` : ""}</div></td></tr>`).join("")}
-  </tbody></table></div></section>`;
-  const pts = k => snaps.map(s => ({ y: s[k] || 0, label: dShort(s.week_date), full: snapLabel(s.week_date, s.uploaded_at) }));
-  const cs = getComputedStyle(document.documentElement);
-  const col = v => cs.getPropertyValue(v).trim();
-  lineChart($("#c1"), pts("val_tot"), { title: "Valore a magazzino", color: col("--accent"), fmt: fmtE, axis: axisE });
-  lineChart($("#c2"), pts("val_sotto"), { title: "Valore da riordinare (sotto scorta)", color: col("--bad"), fmt: fmtE, axis: axisE });
-  lineChart($("#c3"), pts("val_eccesso"), { title: "Valore eccedenze", color: col("--warn"), fmt: fmtE, axis: axisE });
-  lineChart($("#c4"), pts("val_fermo"), { title: "Valore fermo senza fabbisogno", color: col("--idle"), fmt: fmtE, axis: axisE });
-  $$("[data-open]", main).forEach(b => b.onclick = () => { state.analisi = { ...state.analisi, snapId: +b.dataset.open, offset: 0, f: "tutti" }; location.hash = "#analisi"; });
-  $$("[data-del]", main).forEach(b => b.onclick = async () => {
-    if (!await confirmBox("Eliminare il caricamento?", `Verranno cancellati tutti i dati del caricamento del ${esc(b.dataset.w)} per ${esc(name)}. L'operazione non si può annullare.`, "Elimina", true)) return;
-    try { await api("DELETE", "/api/snapshots/" + b.dataset.del); toast("Caricamento eliminato."); if (state.analisi.snapId === +b.dataset.del) state.analisi.snapId = null; route(); } catch (e) { if (!e.silent) toast(e.message); }
-  });
-}
 
 /* ============ Analisi codici ============ */
 const FILTRI = [
