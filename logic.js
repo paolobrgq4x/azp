@@ -146,9 +146,9 @@ function filterValues(items) {
 
 /*
  * Scenari d'ordine. Sono tre.
- *  cover  : acquisti per coprire un periodo (1, 2 o 3 mesi), rispettando SMin e SMax.
- *  amount : acquisti per un importo, rispettando SMin e SMax.
- *  free   : acquisti per un importo libero: come amount, e quello che resta dopo aver portato tutti alla SMax va oltre la SMax.
+ *  cover  : pianifica per coprire un periodo (1, 2 o 3 mesi), rispettando SMin e SMax.
+ *  amount : pianifica per un importo, rispettando SMin e SMax.
+ *  free   : pianifica per un importo libero: come amount, e quello che resta dopo aver portato tutti alla SMax va oltre la SMax.
  *
  * Valgono per tutti e tre:
  *  disponibile      = giacenza + ordini aperti

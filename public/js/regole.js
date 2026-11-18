@@ -4,9 +4,9 @@
 /* ============ Procedura guidata: Nuovo ordine ============
  * 1 Obiettivo -> 2 Liste movimentazione -> 3 Giacenze -> 4 Codici -> 5 Risultato
  * Gli obiettivi sono i tre scenari d'ordine:
- *  cover  : acquisti per coprire un periodo (1, 2 o 3 mesi), rispettando SMin e SMax
- *  amount : acquisti per un importo, rispettando SMin e SMax
- *  free   : acquisti per un importo libero, con facoltà di andare oltre la SMax
+ *  cover  : pianifica per coprire un periodo (1, 2 o 3 mesi), rispettando SMin e SMax
+ *  amount : pianifica per un importo, rispettando SMin e SMax
+ *  free   : pianifica per un importo libero, con facoltà di andare oltre la SMax
  */
 const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze", "Codici", "Risultato"];
 const ORIZZ = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"]];
@@ -23,7 +23,7 @@ const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
 const OVER = [["cons", "Aumento per consumo", "Tutti i codici salgono degli stessi mesi di scorta. Spende tutto l'importo.", "Fai crescere linearmente tutte le giacenze"],
   ["reg", "Aumento per regolarità", "I mesi in più crescono con la regolarità di vendita. Spende tutto l'importo.", "Fai crescere prima i codici che si muovono di più"],
   ["mix", "Aumento misto", "Con la leva decidi quanto contano consumo e regolarità. Spende tutto l'importo.", "Bilancia volumi e codici che si muovono di più"],
-  ["dyn", "Aumento dinamico", "Compra prima i pezzi più probabili da vendere e si ferma sotto la probabilità minima: il resto non si spende.", "Acquista in base alle probabilità di vendita"]];
+  ["dyn", "Aumento dinamico", "Compra prima i pezzi più probabili da vendere e si ferma sotto la probabilità minima: il resto non si spende.", "Pianifica in base alle probabilità di vendita"]];
 const OVER_W = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 // Leva dell'aumento misto: a sinistra il consumo, a destra la regolarità. Il valore salvato è il peso della regolarità (overWeight).
 const levTxt = w => `${fmtN(100 - w)}% consumo · ${fmtN(w)}% regolarità`;
@@ -49,9 +49,9 @@ const OVER_DESC = {
 // probabilità scritta per difetto, così un pezzo sotto la soglia non sembra mai sopra
 const probTxt = v => (v >= 0.995 ? "oltre 99%" : v < 0.01 ? "meno di 1%" : Math.floor(v * 100 + 1e-9) + "%");
 const SCENARI = {
-  cover: { t: "Acquisti per coprire un periodo", s: "Copro un periodo", d: "Ordino quanto serve per coprire 1, 2 o 3 mesi di vendite. Nessun codice resta sotto la SMin e nessuno supera la SMax." },
-  amount: { t: "Acquisti per un importo", s: "Spendo un importo", d: "Spendo una cifra: prima riporto alla SMin i codici che sono sotto, poi divido il resto in proporzione alle vendite regolari. Nessun codice supera la SMax." },
-  free: { t: "Acquisti per un importo libero", s: "Importo libero", d: "Come l'importo, con la facoltà di andare oltre la SMax: quello che avanza dopo aver portato tutti i codici alla SMax viene speso comunque. Scegli tu come: per consumo, per regolarità, misto o dinamico." }
+  cover: { t: "Pianifica per coprire un periodo", s: "Copro un periodo", d: "Ordino quanto serve per coprire 1, 2 o 3 mesi di vendite. Nessun codice resta sotto la SMin e nessuno supera la SMax." },
+  amount: { t: "Pianifica per un importo", s: "Spendo un importo", d: "Spendo una cifra: prima riporto alla SMin i codici che sono sotto, poi divido il resto in proporzione alle vendite regolari. Nessun codice supera la SMax." },
+  free: { t: "Pianifica per un importo libero", s: "Importo libero", d: "Come l'importo, con la facoltà di andare oltre la SMax: quello che avanza dopo aver portato tutti i codici alla SMax viene speso comunque. Scegli tu come: per consumo, per regolarità, misto o dinamico." }
 };
 
 /* ============ Regole di riordino ============
@@ -185,7 +185,7 @@ function whyHtml(l) {
       // aumento dinamico: la probabilità di vendere il primo e l'ultimo pezzo comprato, e quella del pezzo a cui ci si è fermati
       const H = mesi(c.sell.months), last = p3.from + p3.qty - 1;
       const intro = `Oltre la SMax, con l'aumento dinamico, si comprano prima i pezzi più facili da vendere. A questo ritmo il codice vende in media circa ${n1(p3.mu)} pezzi in ${H} e a questo punto ne ha già ${fmtN(p3.from - 1)}.`;
-      const stopTxt = n => `Il pezzo numero ${fmtN(n)} avrebbe ${ilPct(p3.pNext)}` + (p3.stop === "soglia" ? `, sotto la probabilità minima scelta (${fmtN(c.sell.prob)}%): qui l'acquisto si ferma.` : ", ma l'importo è già finito.");
+      const stopTxt = n => `Il pezzo numero ${fmtN(n)} avrebbe ${ilPct(p3.pNext)}` + (p3.stop === "soglia" ? `, sotto la probabilità minima scelta (${fmtN(c.sell.prob)}%): qui la pianificazione si ferma.` : ", ma l'importo è già finito.");
       if (p3.qty > 0) {
         li.push(intro);
         li.push(`Il pezzo numero ${fmtN(p3.from)} ha ${ilPct(p3.pFirst)} di probabilità di essere venduto entro ${H}${p3.qty > 1 ? `; l'ultimo pezzo comprato, il numero ${fmtN(last)}, ha ${ilPct(p3.pLast)}` : ""}.${p3.pNext == null ? "" : " " + stopTxt(last + 1)} Riceve quindi <b>${pezzi(p3.qty)}</b>.`);
@@ -221,8 +221,8 @@ function whyHtml(l) {
             : n === 1 ? " Questa somma va all'unico codice che può salire oltre la SMax." : ` Questa somma si divide fra ${gli(n)} codici che possono salire oltre la SMax.`;
           const mese = n === 1 ? ` Un mese di ${nome} di quel codice vale ${fmtE(c.pm3)}: i suoi pezzi al mese moltiplicati per il costo.`
             : ` Un mese di ${nome} di tutti questi codici vale ${fmtE(c.pm3)}: per ogni codice si moltiplicano i pezzi al mese per il costo, poi si sommano i risultati.`;
-          const gia = Z < 1 ? "" : n === 1 ? ` Quel codice aveva già pezzi oltre la SMax, per un valore di ${fmtE(Z)}: si considerano già acquistati.`
-            : ` Alcuni di questi codici avevano già pezzi oltre la SMax, per un valore di ${fmtE(Z)}: si considerano già acquistati.`;
+          const gia = Z < 1 ? "" : n === 1 ? ` Quel codice aveva già pezzi oltre la SMax, per un valore di ${fmtE(Z)}: si contano come già pianificati.`
+            : ` Alcuni di questi codici avevano già pezzi oltre la SMax, per un valore di ${fmtE(Z)}: si contano come già pianificati.`;
           const esito = n === 1 && Math.abs(c.level3 - r) > 0.05 ? `circa ${lv(r)} mesi di ${nome}. Poiché si ordinano solo pezzi interi, il numero di mesi che fa spendere l'importo è <b>${lv(c.level3)}</b>.`
             : c.level3 > r + 0.05 ? `circa ${lv(r)} mesi di ${nome}. Poiché si ordinano solo pezzi interi, ogni codice perde in media mezzo pezzo: per spendere tutto l'importo il numero di mesi sale a <b>${lv(c.level3)}</b>, uguale per tutti i codici.`
             : c.level3 < r - 0.05 ? `circa ${lv(r)} mesi di ${nome}. Poiché si ordinano solo pezzi interi, l'importo non si divide in parti esatte: il numero di mesi si ferma a <b>${lv(c.level3)}</b>, uguale per tutti i codici.`

@@ -29,9 +29,9 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 
 | Scenario | Come lavora |
 |---|---|
-| Acquisti per coprire un periodo (1, 2 o 3 mesi) | Obiettivo = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax. Ordine = obiettivo − disponibile. Non c'è un importo: la spesa è il risultato |
-| Acquisti per un importo | 1. I codici sotto la SMin tornano alla SMin (se l'importo non basta: prima la regolarità più alta, poi il consumo più alto). 2. Il resto compra a tutti lo stesso numero di mesi di vendita regolare. 3. Nessun codice supera la SMax; se tutti ci arrivano, il resto non viene speso |
-| Acquisti per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con uno dei quattro modi descritti sotto. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Tetto per codice facoltativo |
+| Pianifica per coprire un periodo (1, 2 o 3 mesi) | Obiettivo = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax. Ordine = obiettivo − disponibile. Non c'è un importo: la spesa è il risultato |
+| Pianifica per un importo | 1. I codici sotto la SMin tornano alla SMin (se l'importo non basta: prima la regolarità più alta, poi il consumo più alto). 2. Il resto compra a tutti lo stesso numero di mesi di vendita regolare. 3. Nessun codice supera la SMax; se tutti ci arrivano, il resto non viene speso |
+| Pianifica per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con uno dei quattro modi descritti sotto. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Tetto per codice facoltativo |
 
 I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino: sopra la proposta solo la stagionalità (correzione del consumo medio, da −50% a +50%) e, nello scenario a periodo, l'arrotondamento; periodo, importo, modo oltre la SMax e consumo minimo si scelgono nei passi di «Nuovo ordine», l'avviso di copertura sopra la tabella di conferma. Peso della regolarità, copertura massima, valore minimo di riga ed esclusione dei codici su richiesta restano ai valori iniziali; di ogni quantità si può aprire il conto passo per passo.
 
