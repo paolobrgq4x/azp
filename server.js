@@ -357,8 +357,8 @@ app.get("/api/snapshots/:id/items", auth(), wrap(async (req, res) => {
   const dir = req.query.dir === "desc" ? "DESC" : "ASC";
   const order = sortKey ? `${SORTS[sortKey]} ${dir} NULLS LAST, code` : `${PRIO}, abs(val_action) DESC, code`;
   const all = req.query.all === "1";
-  const limit = all ? 200000 : Math.min(500, Math.max(1, +req.query.limit || 200));
-  const offset = all ? 0 : Math.max(0, +req.query.offset || 0);
+  const limit = all ? 200000 : Math.min(500, Math.max(1, Math.floor(+req.query.limit) || 200));
+  const offset = all ? 0 : Math.min(1e7, Math.max(0, Math.floor(+req.query.offset) || 0));   // sempre un intero: nella query entrano solo numeri
   const [items, total, counts, prev] = await Promise.all([
     pool.query(`SELECT code, descr, loc, dg, status, in_b, giac, ord, smin, smax, delta, cost, val_giac, val_action, regolarita, cons_mese, streak, prev_giac, ondemand
       FROM ${SRC} WHERE ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, params),
