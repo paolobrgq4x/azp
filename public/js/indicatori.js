@@ -53,7 +53,7 @@ async function viewKpi(main) {
   const [K, T] = await Promise.all([api("GET", `/api/snapshots/${state.kpiSnap}/kpi`), api("GET", `/api/dealers/${state.dealerId}/kpitrend`)]);
   const pc = v => v == null ? "–" : fmtN(v * 100, 1) + "%";
   const st = s => K.by_status.find(x => x.status === s);
-  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}<br>${esc(stockNote(K))}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
+  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}<br>${esc(stockNote(K))}${(snaps.find(s => s.id === state.kpiSnap) || {}).perim_n ? ` · perimetro della rete: ${fmtN(snaps.find(s => s.id === state.kpiSnap).perim_n)} codici` : ""}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
   <section class="tiles">
     <div class="tile"><span class="k">Livello di servizio stimato</span><span class="v">${pc(K.service)}</span><span class="s">codici con SMin disponibili a scaffale · ${fmtN(K.n_zero)} a zero su ${fmtN(K.n_dem)}</span></div>
     <div class="tile neutral"><span class="k">Copertura media</span><span class="v">${K.coverage_months == null ? "–" : fmtN(K.coverage_months, 1) + " mesi"}</span><span class="s">valore a magazzino ÷ consumo mensile (${fmtE(K.cons_year / 12)})</span></div>

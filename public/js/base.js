@@ -169,7 +169,6 @@ const VIEWS = [
   { id: "nuovo", label: "Nuovo ordine" },
   { id: "kpi", label: "Indicatori" },
   { id: "analisi", label: "Analisi codici" },
-  { id: "ordine", label: "Scenari d'ordine" },
   { id: "codice", label: "Scheda codice" },
   { id: "regole", label: "Regole" },
   { id: "carica", label: "Carica dati" },
@@ -209,7 +208,7 @@ function route() {
   let view = (location.hash || "#").slice(1);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) view = isAdmin() ? "rete" : "nuovo";
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, kpi: viewKpi, analisi: viewAnalisi, ordine: viewOrdine, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, kpi: viewKpi, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);
