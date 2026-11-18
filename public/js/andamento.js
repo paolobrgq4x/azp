@@ -28,8 +28,8 @@ async function viewRete(main) {
     <td class="num">${r.snap_id ? fmtE(r.val_tot) : "–"}</td><td class="num">${r.snap_id ? fmtE(r.val_sotto) : "–"}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_eccesso) : "–"}</td><td>${r.snap_id ? trend(r.val_eccesso, r.p_val_eccesso) : ""}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_fermo) : "–"}</td><td>${r.snap_id ? trend(r.val_fermo, r.p_val_fermo) : ""}</td></tr>`).join("")}
-  </tbody></table></div><p class="small muted">Tocca una riga per aprire gli indicatori della concessionaria.</p>` : `<p class="muted">Nessuna concessionaria. Aggiungile da <a href="#admin">Amministrazione</a>.</p>`}</section>`;
-  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} location.hash = "#kpi"; });
+  </tbody></table></div><p class="small muted">Tocca una riga per aprire l'analisi dei codici della concessionaria.</p>` : `<p class="muted">Nessuna concessionaria. Aggiungile da <a href="#admin">Amministrazione</a>.</p>`}</section>`;
+  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} location.hash = "#analisi"; });
 }
 
 /* ============ Grafico a linea (piccoli multipli) ============ */
@@ -76,6 +76,11 @@ function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw || 1))
 const axisE = v => Math.abs(v) >= 1e6 ? fmtN(v / 1e6, 1) + "M" : Math.abs(v) >= 1e3 ? fmtN(v / 1e3, 0) + "k" : fmtN(v);
 
 /* ============ Analisi codici ============ */
+// giacenze usate e perimetro della rete del caricamento scelto
+function snapNote(snaps, id) {
+  const S = snaps.find(s => s.id === id) || {};
+  return esc(stockNote(S)) + (S.perim_n ? ` · perimetro della rete: ${fmtN(S.perim_n)} codici` : "");
+}
 const FILTRI = [
   ["tutti", "Tutti"], ["sotto", "Sotto scorta"], ["eccesso", "Eccesso"], ["fermo", "Fermo"],
   ["nogiac", "Non in giacenza"], ["nostorico", "Senza storico"], ["ok", "In linea"]
@@ -94,7 +99,7 @@ async function viewAnalisi(main) {
   if (!snaps.length) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica liste movimentazione e giacenze per iniziare.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`; return; }
   const A = state.analisi;
   if (!snaps.some(s => s.id === A.snapId)) { A.snapId = snaps[snaps.length - 1].id; A.offset = 0; }
-  main.innerHTML = `<div class="head"><div><h1>Analisi codici</h1><p class="sub">${esc(dealerName(state.dealerId))}</p></div>
+  main.innerHTML = `<div class="head"><div><h1>Analisi codici</h1><p class="sub">${esc(dealerName(state.dealerId))}<br><span id="asnap">${snapNote(snaps, A.snapId)}</span></p></div>
     <label class="field" for="wsel">Dati del<select id="wsel">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === A.snapId ? " selected" : ""}>${esc(snapLabel(s.week_date, s.uploaded_at))}</option>`).join("")}</select></label></div>
   <section class="panel">
     <div class="bar"><div class="chips" id="chips" role="group" aria-label="Filtra per stato"></div>
@@ -110,7 +115,7 @@ async function viewAnalisi(main) {
     <li><b>Caricamenti nello stato</b>: in quanti caricamenti consecutivi il codice è rimasto nello stesso stato. <b>Var. giacenza</b>: variazione della giacenza rispetto al caricamento precedente.</li>
     <li><b>Non in giacenza</b>: codice dello storico assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nello storico.</li>
     <li><b>Giacenza</b>: quella del file giacenze, se è stato caricato; altrimenti quella riportata dalle liste movimentazione (fine del mese precedente). Sopra la tabella è scritto quale vale per questi dati.</li></ul></section>`;
-  $("#wsel").onchange = e => { A.snapId = +e.target.value; A.offset = 0; loadItems(); };
+  $("#wsel").onchange = e => { A.snapId = +e.target.value; A.offset = 0; $("#asnap").innerHTML = snapNote(snaps, A.snapId); loadItems(); };
   let qt; $("#q").oninput = e => { clearTimeout(qt); qt = setTimeout(() => { A.q = e.target.value; A.offset = 0; loadItems(); }, 300); };
   $("#xls").onclick = exportXls;
   await loadItems();

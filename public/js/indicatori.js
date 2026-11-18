@@ -1,5 +1,5 @@
 "use strict";
-/* Parts Planning · grafici, pagine Indicatori e Scheda codice */
+/* Parts Planning · barre orizzontali e pagina Scheda codice */
 
 /* ============ Barre orizzontali ============ */
 function bars(host, items, opt = {}) {
@@ -7,101 +7,6 @@ function bars(host, items, opt = {}) {
   host.innerHTML = `<div class="bars">${items.map((i, k) => `<div class="brow" title="${esc(i.label)}: ${esc(opt.fmt ? opt.fmt(i.value) : fmtN(i.value))}${i.sub ? " · " + esc(i.sub) : ""}">
     <span class="bl">${esc(i.label)}</span><span class="btrack"><span class="bfill" data-k="${k}"></span></span><span class="bv">${esc(opt.fmt ? opt.fmt(i.value) : fmtN(i.value))}${i.sub ? `<span class="bs">${esc(i.sub)}</span>` : ""}</span></div>`).join("")}</div>`;
   $$(".bfill", host).forEach(el => { const i = items[+el.dataset.k]; el.style.width = Math.max(i.value > 0 ? 0.6 : 0, i.value / max * 100) + "%"; el.style.background = i.color || opt.color || "var(--chart)"; });
-}
-
-/* ============ Dispersione rotazione / copertura (canvas, scale logaritmiche) ============ */
-function scatter(host, pts) {
-  const cs = getComputedStyle(document.documentElement), col = v => cs.getPropertyValue(v).trim();
-  const colors = { ok: col("--good"), sotto: col("--bad"), eccesso: col("--warn"), fermo: col("--idle") };
-  host.innerHTML = `<div class="ct"><h3>Rotazione e copertura dei codici a magazzino</h3></div>
-    <div class="legend">${["ok", "sotto", "eccesso", "fermo"].map(s => `<span><i class="sw sw-${s}"></i>${STATI[s]}</span>`).join("")}<span class="muted small">Ogni punto è un codice. Scale logaritmiche.</span></div>
-    <div class="cwrap"><canvas></canvas><div class="tip" hidden></div></div>`;
-  const cv = $("canvas", host), tip = $(".tip", host), wrap = $(".cwrap", host);
-  const W = wrap.clientWidth || 600, H = Math.min(380, Math.max(260, W * 0.5)), dpr = window.devicePixelRatio || 1;
-  cv.width = W * dpr; cv.height = H * dpr; cv.style.width = W + "px"; cv.style.height = H + "px";
-  const ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
-  const L = 54, R = 26, T = 10, B = 40;
-  const xs = [0.01, 100], ys = [0.1, 240];
-  const lx = v => L + (Math.log10(Math.min(Math.max(v, xs[0]), xs[1])) - Math.log10(xs[0])) / (Math.log10(xs[1]) - Math.log10(xs[0])) * (W - L - R);
-  const ly = v => T + (1 - (Math.log10(Math.min(Math.max(v, ys[0]), ys[1])) - Math.log10(ys[0])) / (Math.log10(ys[1]) - Math.log10(ys[0]))) * (H - T - B);
-  ctx.font = "11px " + cs.getPropertyValue("--f-body"); ctx.fillStyle = col("--muted"); ctx.strokeStyle = col("--line"); ctx.lineWidth = 1;
-  [0.01, 0.1, 1, 10, 100].forEach(v => { const x = lx(v); ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, H - B); ctx.stroke(); ctx.textAlign = "center"; ctx.fillText(fmtN(v, v < 0.1 ? 2 : v < 1 ? 1 : 0), x, H - B + 14); });
-  [0.1, 1, 3, 12, 60, 240].forEach(v => { const y = ly(v); ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(W - R, y); ctx.stroke(); ctx.textAlign = "right"; ctx.fillText(fmtN(v, v < 1 ? 1 : 0), L - 6, y + 4); });
-  ctx.textAlign = "center"; ctx.fillText("Consumo medio mensile (pezzi)", L + (W - L - R) / 2, H - 6);
-  ctx.save(); ctx.translate(12, T + (H - T - B) / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("Mesi di copertura", 0, 0); ctx.restore();
-  const plotted = pts.map(p => ({ x: lx(p[0]), y: ly(p[1]), p }));
-  ctx.globalAlpha = 0.55;
-  for (const s of ["ok", "fermo", "eccesso", "sotto"]) { ctx.fillStyle = colors[s]; for (const q of plotted) if (q.p[2] === s) { ctx.beginPath(); ctx.arc(q.x, q.y, 2.6, 0, 6.283); ctx.fill(); } }
-  ctx.globalAlpha = 1;
-  cv.addEventListener("pointermove", ev => {
-    const r = cv.getBoundingClientRect(), mx = ev.clientX - r.left, my = ev.clientY - r.top;
-    let best = null, bd = 100; for (const q of plotted) { const d = (q.x - mx) ** 2 + (q.y - my) ** 2; if (d < bd) { bd = d; best = q; } }
-    if (!best) { tip.hidden = true; return; }
-    tip.hidden = false; tip.textContent = `${best.p[3]} · ${fmtN(best.p[0], 2)} pz/mese · ${fmtN(best.p[1], 1)} mesi · ${STATI[best.p[2]]}`;
-    tip.style.left = best.x + "px"; tip.style.top = best.y + "px";
-  });
-  cv.addEventListener("pointerleave", () => { tip.hidden = true; });
-}
-
-/* ============ Indicatori ============ */
-async function viewKpi(main) {
-  if (needDealer(main)) return;
-  const snaps = state.snapshots.length ? state.snapshots : await loadSnapshots();
-  if (!snaps.length) return noWeeks(main);
-  if (!snaps.some(s => s.id === state.kpiSnap)) state.kpiSnap = snaps[snaps.length - 1].id;
-  main.innerHTML = `<div class="panel"><p class="muted">Calcolo degli indicatori…</p></div>`;
-  const [K, T] = await Promise.all([api("GET", `/api/snapshots/${state.kpiSnap}/kpi`), api("GET", `/api/dealers/${state.dealerId}/kpitrend`)]);
-  const pc = v => v == null ? "–" : fmtN(v * 100, 1) + "%";
-  const st = s => K.by_status.find(x => x.status === s);
-  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}<br>${esc(stockNote(K))}${(snaps.find(s => s.id === state.kpiSnap) || {}).perim_n ? ` · perimetro della rete: ${fmtN(snaps.find(s => s.id === state.kpiSnap).perim_n)} codici` : ""}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
-  <section class="tiles">
-    <div class="tile"><span class="k">Livello di servizio stimato</span><span class="v">${pc(K.service)}</span><span class="s">codici con SMin disponibili a scaffale · ${fmtN(K.n_zero)} a zero su ${fmtN(K.n_dem)}</span></div>
-    <div class="tile neutral"><span class="k">Copertura media</span><span class="v">${K.coverage_months == null ? "–" : fmtN(K.coverage_months, 1) + " mesi"}</span><span class="s">valore a magazzino ÷ consumo mensile (${fmtE(K.cons_year / 12)})</span></div>
-    <div class="tile warn"><span class="k">Valore immobilizzato</span><span class="v">${pc(K.idle_share)}</span><span class="s">eccedenze e fermo sul valore a magazzino</span></div>
-    <div class="tile neutral"><span class="k">Codici in classe A</span><span class="v">${fmtN(K.abc.A.n)}</span><span class="s">fanno l'80% del consumo · ${fmtN(K.abc.A.sotto)} sotto scorta</span></div>
-  </section>
-  ${T.length > 1 ? `<section class="charts"><div class="chart" id="t1"></div><div class="chart" id="t2"></div></section>` : ""}
-  <section class="grid2">
-    <div class="panel"><h2>Dove sta il valore del magazzino</h2><div id="b1"></div><p class="small muted">Per i codici in eccesso è indicata la parte sopra SMax.</p></div>
-    <div class="panel"><h2>Copertura dei codici a scaffale</h2><div id="b3"></div><p class="small muted">Valore della giacenza per mesi di copertura: giacenza ÷ consumo medio mensile.</p></div>
-  </section>
-  <section class="grid2">
-    <div class="chart" id="pareto"></div>
-    <div class="panel"><h2>Classi ABC sul consumo annuo</h2><div class="tablebox"><table><thead><tr><th>Classe</th><th class="num">Codici</th><th class="num">Quota consumo</th><th class="num">Valore a magazzino</th><th class="num">Sotto scorta</th></tr></thead><tbody>
-      ${["A", "B", "C"].map(c => { const g = K.abc[c]; return `<tr><td><b>${c}</b> <span class="muted small">${c === "A" ? "primo 80%" : c === "B" ? "successivo 15%" : "ultimo 5%"}</span></td><td class="num">${fmtN(g.n)}</td><td class="num">${pc(K.cons_year ? g.cv / K.cons_year : 0)}</td><td class="num">${fmtE(g.val)}</td><td class="num">${fmtN(g.sotto)}</td></tr>`; }).join("")}
-      <tr><td><b>Senza consumo</b></td><td class="num">${fmtN(K.abc_none.n)}</td><td class="num">–</td><td class="num">${fmtE(K.abc_none.val)}</td><td class="num">–</td></tr></tbody></table></div>
-      <p class="small muted">Consumo annuo = consumo medio mensile × 12 × costo. I codici A meritano la massima attenzione sulle rotture di stock; quelli senza consumo con giacenza sono candidati al reso o alla svendita.</p></div>
-  </section>
-  <section class="grid2">
-    <div class="panel"><h2>Codici per rotazione</h2><div id="b2"></div><p class="small muted">Rotazione annua stimata: consumo medio mensile × 12.</p></div>
-    <div class="panel"><h2>Valore per rotazione</h2><div id="b2v"></div></div>
-  </section>
-  <div class="chart" id="sc"></div>
-  <section class="grid2">
-    <div class="panel"><h2>I 20 codici più movimentati</h2><div class="tablebox"><table><thead><tr><th>Codice</th><th>Descrizione</th><th class="num">Consumo/mese</th><th class="num">Giacenza</th><th class="num">Copertura</th><th>Stato</th></tr></thead><tbody>
-      ${K.top.map(t => `<tr><td class="code"><button type="button" data-c="${esc(t.code)}">${esc(t.code)}</button></td><td class="desc">${esc(t.descr)}</td><td class="num">${fmtN(t.cons_mese, 2)}</td><td class="num">${fmtN(t.giac)}</td><td class="num">${fmtN(t.months, 1)} mesi</td><td><span class="pill ${t.status}">${STATI[t.status]}</span></td></tr>`).join("")}</tbody></table></div></div>
-    <div class="panel"><h2>Tipologie con più valore a magazzino</h2><div id="b4"></div></div>
-  </section>
-  <p class="small muted">Il consumo medio della lista movimentazione è trattato come pezzi al mese: la rotazione annua è il consumo medio × 12 e la copertura è la giacenza ÷ consumo medio. L'indice di regolarità delle vendite (da 0 a 11,99) non entra in questi indicatori: pesa negli scenari d'ordine a importo. Se nel tuo sistema il consumo medio ha un'altra unità, rotazione e copertura vanno ricalibrate.</p>`;
-  $("#kw").onchange = e => { state.kpiSnap = +e.target.value; viewKpi(main); };
-  const cs = getComputedStyle(document.documentElement), col = v => cs.getPropertyValue(v).trim();
-  if (T.length > 1) {
-    lineChart($("#t1"), T.map(t => ({ y: (t.service || 0) * 100, label: dShort(t.week_date), full: snapLabel(t.week_date, t.uploaded_at) })), { title: "Livello di servizio stimato", color: col("--good"), fmt: v => fmtN(v, 1) + "%", axis: v => fmtN(v) + "%" });
-    lineChart($("#t2"), T.map(t => ({ y: t.coverage_months || 0, label: dShort(t.week_date), full: snapLabel(t.week_date, t.uploaded_at) })), { title: "Copertura media in mesi", color: col("--accent"), fmt: v => fmtN(v, 1) + " mesi", axis: v => fmtN(v, 1) });
-  }
-  bars($("#b1"), [
-    { label: "In linea", value: st("ok").val, color: col("--good") },
-    { label: "Sotto scorta", value: st("sotto").val, color: col("--bad"), sub: `${fmtN(st("sotto").n)} codici` },
-    { label: "Eccesso", value: st("eccesso").val, color: col("--warn"), sub: `di cui sopra SMax ${fmtE(st("eccesso").action)}` },
-    { label: "Fermo", value: st("fermo").val, color: col("--idle"), sub: `${fmtN(st("fermo").n)} codici` }
-  ], { fmt: fmtE });
-  bars($("#b3"), K.coverage.map(c => ({ label: c.label, value: c.val, sub: `${fmtN(c.n)} codici`, color: c.label === "Nessuna domanda" ? col("--idle") : c.label === "Oltre 12 mesi" ? col("--warn") : col("--chart") })), { fmt: fmtE });
-  bars($("#b2"), K.rotation.map(r => ({ label: r.label, value: r.n })), { fmt: v => fmtN(v) });
-  bars($("#b2v"), K.rotation.map(r => ({ label: r.label, value: r.val })), { fmt: fmtE });
-  bars($("#b4"), K.types.map(t => ({ label: t.label, value: t.val, sub: t.idle ? `immobilizzati ${fmtE(t.idle)}` : "" })), { fmt: fmtE });
-  lineChart($("#pareto"), K.curve.map(p => ({ y: p.y * 100, label: fmtN(p.x * 100) + "%", full: `${fmtN(p.x * 100, 1)}% dei codici` })), { title: "Curva di Pareto del consumo", color: col("--accent"), fmt: v => fmtN(v, 1) + "% del consumo", axis: v => fmtN(v) + "%" });
-  scatter($("#sc"), K.scatter);
-  $$("[data-c]", main).forEach(b => b.onclick = () => { state.codice = b.dataset.c; location.hash = "#codice"; });
 }
 
 /* ============ Scheda codice ============ */

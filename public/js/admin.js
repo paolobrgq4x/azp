@@ -107,7 +107,7 @@ async function viewAdmin(main) {
   renderUploads();
   $("#updel").onclick = async () => {
     const n = sel.size; if (!n) return;
-    if (!await confirmTyped("Eliminare i caricamenti selezionati?", `Verranno cancellati <b>${fmtN(n)}</b> caricamenti con tutti i codici, gli indicatori e lo storico ricavati da quei file. L'operazione non si può annullare.`, "ELIMINA")) return;
+    if (!await confirmTyped("Eliminare i caricamenti selezionati?", `Verranno cancellati <b>${fmtN(n)}</b> caricamenti con tutti i codici, lo storico e i calcoli ricavati da quei file. L'operazione non si può annullare.`, "ELIMINA")) return;
     try { const r = await api("POST", "/api/snapshots/delete", { ids: [...sel] }); toast(`${fmtN(r.n)} caricamenti eliminati.`); state.snapshots = []; viewAdmin(main); } catch (x) { if (!x.silent) toast(x.message); }
   };
   $$("[data-wipe]", main).forEach(b => b.onclick = async () => {

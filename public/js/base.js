@@ -81,7 +81,7 @@ function infoBox(title, html) {
 const state = {
   me: null, dealers: [], dealerId: null, snapshots: [],
   analisi: { snapId: null, f: "tutti", q: "", sort: null, dir: "asc", offset: 0, limit: 200 },
-  codice: "", upload: { A: [], B: [] }, layouts: {}, layoutsDealer: null, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
+  codice: "", upload: { A: [], B: [] }, layouts: {}, layoutsDealer: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
 };
 const STATI = { sotto: "Sotto scorta", eccesso: "Eccesso", fermo: "Fermo", ok: "In linea", nostorico: "Senza storico" };
 const isAdmin = () => state.me && state.me.user.role === "admin";
@@ -167,7 +167,6 @@ async function logout() { try { await api("POST", "/api/logout"); } catch (e) {}
 const VIEWS = [
   { id: "rete", label: "Rete", admin: true },
   { id: "nuovo", label: "Nuovo ordine" },
-  { id: "kpi", label: "Indicatori" },
   { id: "analisi", label: "Analisi codici" },
   { id: "codice", label: "Scheda codice" },
   { id: "regole", label: "Regole" },
@@ -188,7 +187,7 @@ function shell(view) {
   if ($("#dsel")) $("#dsel").onchange = e => {
     state.dealerId = +e.target.value || null; state.analisi.snapId = null; state.snapshots = [];
     try { localStorage.setItem("ig_dealer", state.dealerId || ""); } catch (x) {}
-    if (location.hash === "#rete" || location.hash === "#admin") location.hash = "#kpi"; else route();
+    if (location.hash === "#rete" || location.hash === "#admin") location.hash = "#analisi"; else route();
   };
   document.title = (VIEWS.find(v => v.id === view) || {}).label + " · Parts Planning";
   return $("#main");
@@ -208,7 +207,7 @@ function route() {
   let view = (location.hash || "#").slice(1);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) view = isAdmin() ? "rete" : "nuovo";
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, kpi: viewKpi, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);

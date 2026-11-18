@@ -54,7 +54,7 @@ Nella proposta da confermare ogni riga ha la quantità in un campo modificabile.
 
 ## Perimetro della rete
 
-L'amministratore può caricare, in «Amministrazione», un Excel con un elenco di codici valido per tutte le concessionarie. Da quel momento gli utenti possono caricare tutto il magazzino, ma ogni caricamento elabora e salva solo i codici dell'elenco: indicatori, analisi, scheda codice e ordini lavorano solo su quelli. La colonna del codice si riconosce dal nome (come nelle liste), altrimenti vale la prima colonna; i doppioni si contano una volta.
+L'amministratore può caricare, in «Amministrazione», un Excel con un elenco di codici valido per tutte le concessionarie. Da quel momento gli utenti possono caricare tutto il magazzino, ma ogni caricamento elabora e salva solo i codici dell'elenco: analisi, scheda codice e ordini lavorano solo su quelli. La colonna del codice si riconosce dal nome (come nelle liste), altrimenti vale la prima colonna; i doppioni si contano una volta.
 
 - Vale dai caricamenti successivi: quelli già fatti restano come sono.
 - Prima di salvare la pagina dice quanti codici delle liste entrano nel perimetro; dopo, quanti sono rimasti fuori.
@@ -109,7 +109,7 @@ In «Dati di prova» il file giacenze si può generare in quattro tracciati dive
   - `js/nuovo.js` — percorso guidato del nuovo caricamento
   - `js/andamento.js` — rete e analisi codici
   - `js/ordine.js` — scenari d'ordine, conferma ed esportazioni Excel/PDF
-  - `js/indicatori.js` — indicatori e scheda codice
+  - `js/indicatori.js` — scheda codice
   - `js/pagina-regole.js` — pagina delle regole
   - `js/carica.js` — lettura dei file, riconoscimento colonne, mesi, giacenze, perimetro
   - `js/prova.js` — generatore di dati di prova
