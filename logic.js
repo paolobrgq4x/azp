@@ -167,8 +167,14 @@ function filterValues(items) {
  *  3. nessun codice supera la SMax: chi ci arriva si ferma e l'importo prosegue sugli altri. Se tutti sono alla SMax,
  *     quello che resta non viene speso.
  *
- * free: come amount; l'importo che amount lascerebbe non speso sale oltre la SMax con la regola del passo 2, contando i mesi
- *       a partire dalla SMax (chi è già sopra la SMax parte in ritardo). Limite facoltativo: da 1 a 6 mesi di consumo sopra la SMax per codice.
+ * free: come amount; l'importo che amount lascerebbe non speso sale oltre la SMax. Limite facoltativo: da 1 a 6 mesi di consumo
+ *       sopra la SMax per codice. Oltre la SMax si sale in uno di due modi, a scelta di chi ordina:
+ *   aumento lineare  (lin): la regola del passo 2, contando i mesi a partire dalla SMax (chi è già sopra la SMax parte in ritardo):
+ *                           tutti i codici salgono degli stessi mesi di vendita regolare;
+ *   aumento dinamico (dyn): per ogni pezzo in più si stima la probabilità di venderlo entro un certo numero di mesi; si comprano
+ *                           i pezzi dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la
+ *                           certezza minima scelta. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi
+ *                           di scorta sale poco o niente. Quello che resta sotto la certezza minima non viene speso.
  *
  * Ordine delle righe: prima i codici che erano sotto la SMin, poi regolarità più alta e, a parità, consumo più alto.
  * Filtri: gruppo principale, DG, classe ABC, testo su codice o descrizione, elenco di codici.
@@ -178,6 +184,9 @@ const REG_MAX = 11.99;
 const MODES = ["cover", "amount", "free"];
 const MONTHS = [1, 2, 3];
 const MAX_COVER = [0, 1, 2, 3, 4, 5, 6];   // mesi di consumo oltre la SMax; 0 = nessun limite
+// Aumento dinamico oltre la SMax: entro quanti mesi si vuole rivendere ogni pezzo in più, e con quale certezza minima (in percentuale).
+const SELL_MONTHS = [2, 3, 4, 6, 9, 12];
+const SELL_PROB = [50, 60, 70, 80, 90, 95, 99];
 
 /* Coda con priorità (heap binario): in cima la voce con il livello più basso. */
 function heapPush(h, x, less) {
@@ -240,6 +249,84 @@ function spread(entries, money, tie) {
   return { left: Math.max(0, left), level, full: E.every(e => e.q >= e.cap), n, value };
 }
 
+/*
+ * Probabilità di vendita, per l'aumento dinamico.
+ * Le vendite di un codice in un periodo si contano come eventi indipendenti (distribuzione di Poisson) con media
+ * mu = vendita regolare × mesi del periodo. Il pezzo in posizione P (il P-esimo pezzo a magazzino) è venduto entro il periodo
+ * se nel periodo si vendono almeno P pezzi; il suo rischio è la probabilità che se ne vendano meno di P.
+ * Si lavora con il logaritmo del rischio: così resta definito l'ordine anche tra pezzi quasi certi (rischio 10^-50 o 10^-300),
+ * e non servono approssimazioni nemmeno per i codici che vendono centinaia di pezzi al mese.
+ */
+const LN_FACT = [0]; for (let k = 1; k < 64; k++) LN_FACT.push(LN_FACT[k - 1] + Math.log(k));
+const lnFact = k => (k < 64 ? LN_FACT[k] : k * Math.log(k) - k + 0.5 * Math.log(2 * Math.PI * k) + 1 / (12 * k) - 1 / (360 * k * k * k) + 1 / (1260 * k * k * k * k * k));
+const logAdd = (a, b) => { const m = Math.max(a, b); return m === -Infinity ? m : m + Math.log1p(Math.exp(Math.min(a, b) - m)); };
+// Per il pezzo in posizione P (intero, da 1): lp = ln P(vendite = P − 1), lr = ln P(vendite ≤ P − 1), cioè il logaritmo del rischio.
+function riskAt(P, mu) {
+  const k = P - 1, lp = -mu + k * Math.log(mu) - lnFact(k);
+  if (k <= mu) {              // sotto la media: la somma parte dal termine più grande e scende
+    let s = 1, t = 1;
+    for (let j = k; j >= 1; j--) { t *= j / mu; s += t; if (t < 1e-17 * s) break; }
+    return { lp, lr: Math.min(0, lp + Math.log(s)) };
+  }
+  let s = 0, t = 1;            // sopra la media: uno meno la coda verso l'alto
+  for (let j = 1; j < 1e6; j++) { t *= mu / (k + j); s += t; if (t < 1e-17 * s) break; }
+  return { lp, lr: Math.log1p(-Math.min(1 - 1e-16, Math.exp(lp) * s)) };
+}
+const probOf = lr => -Math.expm1(lr);   // probabilità di vendita = 1 − rischio
+
+/*
+ * Aumento dinamico: distribuzione di un importo a pezzi interi, dal pezzo più sicuro al meno sicuro.
+ * Ogni voce ha: mu (pezzi di vendita regolare nel periodo scelto), cost, have (pezzi che il codice ha già) e cap (pezzi che può
+ * ancora ricevere, anche Infinity).
+ * A ogni passo si compra, tra i prossimi pezzi di tutti i codici, quello con la probabilità di vendita più alta; a parità esatta
+ * vale la precedenza (regolarità, consumo, codice). Ci si ferma quando finisce l'importo oppure quando anche il pezzo più sicuro
+ * rimasto è sotto la certezza minima minProb (da 0 a 1). Chi costa più dell'importo rimasto viene saltato.
+ * Scrive in ogni voce: q (pezzi ricevuti), from (posizione del primo pezzo in più), pFirst, pLast (probabilità del primo e
+ * dell'ultimo pezzo comprato), pNext (probabilità del pezzo successivo, non comprato) e stop (perché si è fermata:
+ * "soglia" = il pezzo successivo è sotto la certezza minima, "importo" = l'importo è finito prima, "tetto" = ha raggiunto il suo massimo).
+ * I pezzi si comprano in ordine di probabilità decrescente, anche dopo un salto: l'ultimo comprato è il meno sicuro.
+ * Restituisce level: la probabilità del pezzo meno sicuro comprato, cioè la certezza minima dell'ordine oltre la SMax,
+ * e stop: perché la distribuzione è finita: "importo" (l'importo è finito, o quello che resta non basta per i pezzi ancora ammessi),
+ * "soglia" (resta dell'importo, ma tutti i pezzi rimasti sono sotto la certezza minima), "tetto" (tutti i codici sono al loro massimo),
+ * "vuoto" (nessun codice poteva ricevere pezzi), "limite" (raggiunto il numero massimo di pezzi che il calcolo assegna: una protezione
+ * contro dati o importi assurdi, lontanissima dai casi reali).
+ */
+const RISK_MAX_PIECES = 2000000;
+function spreadRisk(entries, money, tie, minProb) {
+  for (const e of entries) { e.q = 0; e.short = false; e.from = null; e.pFirst = null; e.pLast = null; e.pNext = null; e.stop = null; }
+  const E = entries.filter(e => e.mu > 0 && e.cap > 0 && e.cost > 0);
+  if (!E.length || !(money >= 0.01)) return { left: Math.max(0, money), level: null, full: !E.length, n: 0, value: 0, stop: E.length ? "importo" : "vuoto" };
+  const lmax = Math.log(1 - Math.min(0.999999, Math.max(0, minProb))) + 1e-12;   // logaritmo del rischio massimo ammesso
+  const less = (a, b) => a.lr < b.lr || (a.lr === b.lr && tie(a.c, b.c) < 0);
+  const heap = [];
+  for (const e of E) {
+    e.from = Math.ceil(e.have - 1e-9) + 1; if (e.from < 1) e.from = 1;
+    const st = riskAt(e.from, e.mu); e.P = e.from; e.lp = st.lp; e.lr = st.lr; e.pNext = probOf(e.lr);
+    heapPush(heap, e, less);
+  }
+  let left = money, level = null, skipped = false, thr = false, bought = 0, over = false;
+  while (heap.length && left >= 0.01) {
+    if (heap[0].lr > lmax) { thr = true; break; }           // anche il pezzo più sicuro rimasto è sotto la certezza minima
+    if (bought >= RISK_MAX_PIECES) { over = true; break; }
+    const e = heapPop(heap, less);
+    if (e.cost > left + 1e-9) { skipped = true; e.stop = "importo"; continue; }   // l'importo rimasto non basta più per questo codice
+    // Il codice in cima riceve pezzi finché il suo prossimo pezzo resta il più sicuro di tutti: lo stesso ordine di un pezzo
+    // alla volta, senza rimettere il codice in coda a ogni pezzo (i codici che vendono molto ricevono lunghe serie di pezzi).
+    for (;;) {
+      const p = probOf(e.lr);
+      e.q++; bought++; left -= e.cost; e.pLast = p; if (e.pFirst === null) e.pFirst = p; level = p;
+      if (e.q >= e.cap) { e.stop = "tetto"; e.pNext = null; break; }
+      e.lp += Math.log(e.mu / e.P); e.P++; e.lr = Math.min(0, logAdd(e.lr, e.lp)); e.pNext = probOf(e.lr);
+      if (e.lr > lmax || left < 0.01 || e.cost > left + 1e-9 || bought >= RISK_MAX_PIECES || (heap.length && !less(e, heap[0]))) { heapPush(heap, e, less); break; }
+    }
+  }
+  for (const e of heap) e.stop = e.lr > lmax ? "soglia" : "importo";
+  let n = 0, value = 0;
+  for (const e of E) { if (e.q > 0) { n++; value += e.q * e.cost; } e.short = e.q < e.cap; delete e.P; delete e.lp; delete e.lr; }
+  const stop = over ? "limite" : E.every(e => e.q >= e.cap) ? "tetto" : thr && !skipped ? "soglia" : "importo";
+  return { left: Math.max(0, left), level, full: stop !== "importo", n, value, stop };
+}
+
 function scenario(items, p) {
   const abc = abcMap(items);
   const f = p.filters || {};
@@ -260,6 +347,7 @@ function scenario(items, p) {
   const k = 1 + R.consAdj / 100, roundFn = ROUND[R.round];
   const excluded = { flag: 0, noparams: 0, low: 0, minline: 0 };
   const forced = !!(list && p.listOverride);   // codici scelti a mano: valgono anche se segnati su richiesta
+  const dyn = mode === "free" && R.overMode === "dyn";   // oltre la SMax: aumento dinamico invece di quello lineare
 
   const cands = [];
   for (const i of items) {
@@ -345,24 +433,33 @@ function scenario(items, p) {
       if (e.q > 0) add(e.c, e.q, "In proporzione alle vendite regolari");
       info.set(e.c.code, { p2: { qty: e.q, room: e.cap, capped: e.cap > 0 && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 } });
     }
-    // Passo 3 (solo importo libero): quello che resta dopo aver portato tutti alla SMax sale oltre la SMax.
+    // Passo 3 (solo importo libero): quello che resta dopo aver portato tutti alla SMax sale oltre la SMax,
+    // con l'aumento lineare (stessi mesi di vendita regolare per tutti) oppure con l'aumento dinamico (prima i pezzi più sicuri da rivendere).
     if (mode === "free" && s2.full && left >= 0.01) {
       const E3 = cands.map(c => {
         const have = c.disp + got(c);
         const lim = Math.min(maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity, c.ceil);
-        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: Number.isFinite(lim) ? Math.max(0, lim - have) : Infinity, tcap: c.ceil < (maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity) };
+        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: Number.isFinite(lim) ? Math.max(0, lim - have) : Infinity, tcap: c.ceil < (maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity),
+          have, mu: c.vr * R.sellMonths };
       });
-      const s3 = spread(E3, left, byReg);
-      left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null };
+      const s3 = dyn ? spreadRisk(E3, left, byReg, R.sellProb / 100) : spread(E3, left, byReg);
+      left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null, mode: dyn ? "dyn" : "lin" };
+      if (dyn) Object.assign(extra, { months: R.sellMonths, prob: R.sellProb, stop: s3.stop });
       for (const e of E3) {
         if (e.q > 0) add(e.c, e.q, "Oltre la SMax");
-        if (e.vr > 0) info.get(e.c.code).p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 };
+        if (e.vr > 0) {
+          const p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 };
+          // aumento dinamico: da quale pezzo parte, quanti pezzi di vendita regolare nel periodo, le probabilità e perché si è fermato
+          if (dyn) Object.assign(p3, { dyn: true, from: e.from, mu: e.mu, pFirst: e.pFirst, pLast: e.pLast, pNext: e.pNext, stop: e.stop });
+          info.get(e.c.code).p3 = p3;
+        }
       }
     }
     for (const l of lines.values()) {
       const c = info.get(l.code) || {}, first = l.steps.find(s => s.note === "A zero con fabbisogno" || s.note === "Sotto SMin");
       l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, w: R.regWeight, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
-        level3: extra ? extra.level : null, p3: c.p3 || null, limit: extra ? extra.limit : null };
+        level3: extra ? extra.level : null, p3: c.p3 || null, limit: extra ? extra.limit : null,
+        sell: extra && extra.mode === "dyn" ? { months: extra.months, prob: extra.prob } : null };
     }
   }
 
@@ -403,10 +500,14 @@ function scenario(items, p) {
  * exclOnDemand escludi i codici segnati come su richiesta
  * minLine      escludi le righe di valore inferiore (euro, scenario a periodo)
  * maxCover     importo libero: al massimo SMax + maxCover mesi di consumo per codice (da 1 a 6; 0 = nessun limite)
+ * overMode     importo libero, come salire oltre la SMax: "lin" aumento lineare (stessi mesi per tutti), "dyn" aumento dinamico
+ * sellMonths   aumento dinamico: entro quanti mesi si vuole rivendere ogni pezzo in più (2, 3, 4, 6, 9 o 12)
+ * sellProb     aumento dinamico: certezza minima, in percentuale, che ogni pezzo in più sia venduto entro quei mesi (da 50 a 99)
  * regWeight    peso della regolarità nella vendita regolare, da 0 a 100%: vendita regolare = consumo × (regolarità ÷ 12)^(peso)
  * maxTotal     copertura massima totale in mesi di consumo, in tutti gli scenari (mai sotto la SMin; 0 = nessun tetto)
  * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
-const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0 };
+const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0,
+  overMode: "lin", sellMonths: 6, sellProb: 80 };
 const cleanCover = v => (MAX_COVER.includes(+v) ? +v : 0);
 // Copertura massima totale (mesi di consumo), in tutti gli scenari: nessun codice la supera, ma la SMin resta garantita. 0 = nessun tetto.
 const MAX_TOTAL = [0, 2, 3, 4, 5, 6, 9, 12];
@@ -420,7 +521,9 @@ function cleanRules(r) {
     round: ["nearest", "up", "down"].includes(r.round) ? r.round : D.round,
     minDemand: n(r.minDemand, 0, 1000, D.minDemand), exclOnDemand: b(r.exclOnDemand, D.exclOnDemand), minLine: n(r.minLine, 0, 1e6, D.minLine),
     maxCover: cleanCover(r.maxCover), alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths),
-    regWeight: Math.round(n(r.regWeight, 0, 100, D.regWeight)), maxTotal: MAX_TOTAL.includes(+r.maxTotal) ? +r.maxTotal : D.maxTotal
+    regWeight: Math.round(n(r.regWeight, 0, 100, D.regWeight)), maxTotal: MAX_TOTAL.includes(+r.maxTotal) ? +r.maxTotal : D.maxTotal,
+    overMode: r.overMode === "dyn" ? "dyn" : "lin", sellMonths: SELL_MONTHS.includes(+r.sellMonths) ? +r.sellMonths : D.sellMonths,
+    sellProb: SELL_PROB.includes(+r.sellProb) ? +r.sellProb : D.sellProb
   };
 }
 const ROUND = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
@@ -485,4 +588,5 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { REG_MAX, MAX_TOTAL, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, cleanRules, cross, scenario, filterValues, kpis, GROUPS };
+module.exports = { REG_MAX, MAX_TOTAL, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, SELL_MONTHS, SELL_PROB, cleanRules, cross, scenario, filterValues, kpis, GROUPS,
+  _risk: { riskAt, probOf, spreadRisk } };

@@ -31,9 +31,18 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 |---|---|
 | Acquisti per coprire un periodo (1, 2 o 3 mesi) | Obiettivo = consumo medio mensile × mesi, mai sotto la SMin e mai sopra la SMax. Ordine = obiettivo − disponibile. Non c'è un importo: la spesa è il risultato |
 | Acquisti per un importo | 1. I codici sotto la SMin tornano alla SMin (se l'importo non basta: prima la regolarità più alta, poi il consumo più alto). 2. Il resto compra a tutti lo stesso numero di mesi di vendita regolare. 3. Nessun codice supera la SMax; se tutti ci arrivano, il resto non viene speso |
-| Acquisti per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con la stessa proporzione. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Copertura massima per codice facoltativa |
+| Acquisti per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con l'aumento lineare o con l'aumento dinamico (vedi sotto). La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Tetto per codice facoltativo |
 
 I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
+
+### Oltre la SMax: aumento lineare o aumento dinamico
+
+Nell'importo libero chi ordina sceglie come salire oltre la SMax (regola `overMode`).
+
+- **Aumento lineare** (`lin`, predefinito) — il resto dell'importo dà a ogni codice gli stessi mesi in più di vendita regolare, contati a partire dalla SMax.
+- **Aumento dinamico** (`dyn`) — per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti (`sellMonths`: 2, 3, 4, 6, 9 o 12); si comprano i pezzi dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la certezza minima (`sellProb`: dal 50 al 99%). Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente. Quello che resta sotto la certezza minima non viene speso, e la pagina lo dice.
+
+La probabilità: nel periodo il codice vende in media vendita regolare × mesi, e le vendite si contano come eventi indipendenti (distribuzione di Poisson). Il pezzo numero N è venduto se nel periodo si vendono almeno N pezzi. Il calcolo lavora sul logaritmo del rischio, quindi è esatto anche per i codici che vendono centinaia di pezzi al mese. È una stima statistica, non una garanzia. I tetti (mesi oltre la SMax, copertura massima) valgono per entrambi i modi; di ogni riga si può aprire il conto con le probabilità del primo e dell'ultimo pezzo comprato.
 
 ## Conferma dell'ordine: quantità modificabili
 

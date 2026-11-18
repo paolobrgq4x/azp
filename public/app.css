@@ -380,3 +380,7 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .qin:focus{outline:2px solid var(--info);outline-offset:1px}
 .qcell .sub{display:block;margin-top:2px}
 .decsum .link{margin-top:2px;align-self:flex-start}
+/* Campi in riga: un menu con voci lunghe non allarga la pagina, si accorcia fino alla larghezza disponibile */
+.row > label.field{min-width:0;max-width:100%}
+label.field select{max-width:100%;text-overflow:ellipsis}
+#pextra > p{flex:1 1 100%;margin:0}
