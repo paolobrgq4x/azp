@@ -2181,7 +2181,11 @@ async function viewProva(main) {
   $("#gf").onsubmit = async e => {
     e.preventDefault();
     const n = v => Math.round(parseNum(v));
-    P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
+    // da 1 a 60.000 codici; il file giacenze non può avere molti più codici delle liste (al massimo il 10% in più, o 10 codici)
+    const wantB = Math.min(60000, Math.max(1, n($("#gnb").value)) || 1);
+    P.nA = Math.min(60000, Math.max(1, n($("#gna").value) || 1)); P.nB = Math.min(wantB, Math.max(P.nA + 10, Math.round(P.nA * 1.1)));
+    $("#gna").value = fmtN(P.nA); $("#gnb").value = fmtN(P.nB);
+    const capB = P.nB < wantB ? ` Il file giacenze è stato portato a ${fmtN(P.nB)} codici: non può averne molti più delle liste.` : "";
     P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
     P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std"; P.listStock = $("#gls").value !== "0"; P.fmtA = $("#gfa").value === "lista" ? "lista" : "export";
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
@@ -2202,7 +2206,7 @@ async function viewProva(main) {
       st.textContent = "Comprimo i file…";
       const blob = await zip.generateAsync({ type: "blob" }), url = URL.createObjectURL(blob), a = document.createElement("a");
       a.href = url; a.download = `dati_di_prova_${P.nA}_codici${P.weeks > 1 ? `_${P.weeks}_caricamenti` : ""}.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-      st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip. ${weeks.length > 1 ? "Ultimo caricamento: venduto" : "Venduto"} annuo ${fmtE(G.mov)}, valore a magazzino ${fmtE(G.stock)}.`;
+      st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip, ${fmtN(P.nA)} ${P.nA === 1 ? "codice" : "codici"} nelle liste e ${fmtN(G.weeks[G.weeks.length - 1].B.length)} nel file giacenze.${capB} ${weeks.length > 1 ? "Ultimo caricamento: venduto" : "Venduto"} annuo ${fmtE(G.mov)}, valore a magazzino ${fmtE(G.stock)}.`;
     } catch (x) { st.textContent = ""; toast("Generazione non riuscita: " + x.message); }
     finally { b.disabled = false; }
   };
