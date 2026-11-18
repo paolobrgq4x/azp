@@ -499,5 +499,5 @@ async function bootstrapAdmin() {
 (async () => {
   await migrate();
   await bootstrapAdmin();
-  app.listen(PORT, () => console.log("Incrocio giacenze in ascolto sulla porta", PORT));
+  app.listen(PORT, () => console.log("Parts Planning in ascolto sulla porta", PORT));
 })().catch(e => { console.error(e); process.exit(1); });

@@ -104,9 +104,9 @@ function afterLogin() {
   route();
 }
 function renderLogin(msg) {
-  document.title = "Accedi · Incrocio Giacenze Ricambi";
+  document.title = "Accedi · Parts Planning";
   $("#root").innerHTML = `<div class="login"><form class="panel" id="lf" novalidate>
-    <div><h1>Incrocio giacenze ricambi</h1><p class="muted small">Accesso riservato alla rete.</p></div>
+    <div><h1>Parts Planning</h1><p class="muted small">Accesso riservato alla rete.</p></div>
     ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
     <div class="msg err" id="lerr" hidden></div>
     <label class="field" for="lu">Nome utente<input type="text" id="lu" autocomplete="username" autocapitalize="none" required></label>
@@ -165,7 +165,7 @@ function shell(view) {
   const dsel = isAdmin()
     ? `<select id="dsel" aria-label="Concessionaria"><option value="">Scegli concessionaria…</option>${state.dealers.map(d => `<option value="${d.id}"${d.id === state.dealerId ? " selected" : ""}>${esc(d.name)}${d.code ? " · " + esc(d.code) : ""}</option>`).join("")}</select>`
     : `<span class="who">${esc(u.dealer_name || "")}</span>`;
-  $("#root").innerHTML = `<header class="topbar"><div class="brand"><span class="dot"></span>Incrocio giacenze</div>${dsel}
+  $("#root").innerHTML = `<header class="topbar"><div class="brand"><span class="dot"></span>Parts Planning</div>${dsel}
     <span class="who">${esc(u.full_name || u.username)}</span><button class="link" type="button" id="pwd">Password</button><button class="link" type="button" id="out">Esci</button></header>
     <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.admin || isAdmin()).map(v => `<a href="#${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
     <main id="main"></main>`;
@@ -175,7 +175,7 @@ function shell(view) {
     try { localStorage.setItem("ig_dealer", state.dealerId || ""); } catch (x) {}
     if (location.hash === "#rete" || location.hash === "#admin") location.hash = "#andamento"; else route();
   };
-  document.title = (VIEWS.find(v => v.id === view) || {}).label + " · Incrocio Giacenze Ricambi";
+  document.title = (VIEWS.find(v => v.id === view) || {}).label + " · Parts Planning";
   return $("#main");
 }
 function needDealer(main) {
@@ -732,7 +732,7 @@ async function exportXls() {
     ws["!cols"] = Object.keys(rows[0]).map(k => ({ wch: Math.max(10, k.length + 2) }));
     XLSX.utils.book_append_sheet(wb, ws, "Incrocio");
     const dn = dealerName(state.dealerId).replace(/[^\w\-]+/g, "_");
-    XLSX.writeFile(wb, `incrocio_${dn}_${snap ? snap.week_date : ""}_${A.f}.xlsx`);
+    XLSX.writeFile(wb, `analisi_${dn}_${snap ? snap.week_date : ""}_${A.f}.xlsx`);
   } catch (e) { if (!e.silent) toast(e.message); }
   finally { b.disabled = false; b.textContent = "Scarica Excel"; }
 }
@@ -1106,7 +1106,7 @@ function exportConfirmedPdf(R, rows) {
     styles: { font: "helvetica", fontSize: 7.5, cellPadding: 1.4 }, headStyles: { fillColor: [17, 17, 17], textColor: 255 }, footStyles: { fillColor: [236, 239, 242], textColor: 20, fontStyle: "bold" },
     columnStyles: { 0: { font: "courier" }, 1: { cellWidth: 36 }, 2: { cellWidth: 24 }, 3: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { halign: "right" }, 7: { halign: "right" }, 8: { halign: "right" }, 9: { halign: "right" }, 10: { halign: "right" }, 11: { halign: "right" }, 12: { halign: "right", fontStyle: "bold" }, 13: { halign: "right" }, 14: { halign: "right" }, 15: { textColor: [198, 40, 40] } },
     alternateRowStyles: { fillColor: [247, 249, 250] }, margin: { left: 14, right: 14 },
-    didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Incrocio giacenze ricambi", 14, doc.internal.pageSize.getHeight() - 8); }
+    didDrawPage: d => { doc.setFontSize(8); doc.setTextColor(120); doc.text(`Pagina ${doc.internal.getNumberOfPages()}`, W - 14, doc.internal.pageSize.getHeight() - 8, { align: "right" }); doc.text("Parts Planning", 14, doc.internal.pageSize.getHeight() - 8); }
   });
   const y = doc.lastAutoTable.finalY + 14;
   if (y < doc.internal.pageSize.getHeight() - 20) { doc.setFontSize(9.5); doc.setTextColor(40); doc.text("Firma del responsabile di magazzino: ______________________________", 14, y); }

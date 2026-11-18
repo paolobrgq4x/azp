@@ -1,4 +1,6 @@
-# Incrocio giacenze ricambi
+# Parts Planning
+
+Piattaforma di pianificazione ricambi (nata come «Incrocio giacenze ricambi»).
 
 Piattaforma web che incrocia lo **storico movimentazione** (lista disposizione) e la **giacenza attuale** di una concessionaria, classifica ogni codice (sotto scorta, eccesso, fermo, in linea) e conserva i caricamenti precedenti per seguirne l'evoluzione.
 
