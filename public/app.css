@@ -215,6 +215,10 @@ textarea{font:14px var(--f-mono);color:var(--ink);background:var(--bg);border:1p
 .choice input{margin-top:3px;accent-color:var(--accent)}
 .choice .pin{display:flex;gap:6px;align-items:center;margin-top:6px}
 .choice .pin input[type=text]{width:130px;margin:0}
+.overset{border:0;padding:0;margin:0;min-width:0;flex-basis:100%}
+.overset legend{font-weight:600;margin-bottom:8px;padding:0}
+.choices.over .q{font-weight:600;color:var(--ink)}
+.choices.over b{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
 .addcode{align-items:flex-end}
 .addcode .field{flex:1;min-width:220px}
 #clist{margin-top:12px;display:flex;flex-direction:column;gap:8px}

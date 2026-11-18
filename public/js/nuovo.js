@@ -54,7 +54,7 @@ function wStep1(body, main) {
  * «x» è il prefisso degli id: «p» nella procedura guidata, «o» nella pagina degli scenari. */
 function overFields(x) {
   const r = rules(), om = overMode(r), dyn = om === "dyn", opt = (list, cur, f) => list.map(v => `<option value="${v}"${v === cur ? " selected" : ""}>${f(v)}</option>`).join("");
-  return `<label class="field" for="${x}om">Come salire oltre la SMax<select id="${x}om">${OVER.map(([v, l, d]) => `<option value="${v}"${v === om ? " selected" : ""}>${l}: ${d}</option>`).join("")}</select></label>
+  return `<fieldset class="overset"><legend>Come salire oltre la SMax</legend><div class="choices over">${OVER.map(([v, l, d, q]) => `<label class="choice${v === om ? " on" : ""}" for="${x}om_${v}"><input type="radio" name="${x}om" id="${x}om_${v}" value="${v}"${v === om ? " checked" : ""}><span><span class="q">${q}</span><b>${l}</b><span class="small muted">${d}</span></span></label>`).join("")}</div></fieldset>
     ${om === "mix" ? leverHtml(x + "ow", r.overWeight) : ""}
     ${dyn ? `<label class="field" for="${x}sm">Rivendere i pezzi in più entro<select id="${x}sm">${opt(SELL_MONTHS, r.sellMonths, mm)}</select></label>
     <label class="field" for="${x}sp">Probabilità minima di vendita<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
@@ -65,7 +65,7 @@ const overHelp = r => (overMode(r) === "dyn"
   : OVER_DESC[overMode(r)] + " Senza tetto l'importo viene speso tutto; con un tetto, quello che non trova posto resta non speso.");
 function overRead(x) {
   const r = rules(), g = id => $("#" + x + id);
-  if (g("om")) r.overMode = overMode({ overMode: g("om").value });
+  const om = $(`input[name=${x}om]:checked`); if (om) r.overMode = overMode({ overMode: om.value });
   if (g("ow")) r.overWeight = OVER_W[+g("ow").value] ?? 50;
   if (g("sm")) r.sellMonths = +g("sm").value;
   if (g("sp")) r.sellProb = +g("sp").value;
@@ -73,7 +73,8 @@ function overRead(x) {
 }
 // ogni scelta si salva subito; cambiando il modo i campi si ridisegnano (i due parametri servono solo al dinamico)
 function overBind(x, redraw) {
-  ["om", "sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); if (id === "om") redraw(); }; });
+  $$(`input[name=${x}om]`).forEach(el => el.onchange = () => { overRead(x); saveRules(); redraw(); });
+  ["sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); }; });
   leverBind($("#" + x + "ow"), () => { overRead(x); saveRules(); });
 }
 function wStep2(body, main) {
