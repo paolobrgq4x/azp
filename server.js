@@ -355,19 +355,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   const week = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
   // Giacenze: senza file giacenze (rowsB assente) valgono quelle riportate dalle liste; con il file valgono quelle del file.
   // Perimetro della rete: dei file si tengono solo i codici dell'elenco dell'amministratore.
-  let rowsA = req.body.rowsA, rowsB = req.body.rowsB == null ? null : req.body.rowsB, perimN = null, nOut = 0, fileA = req.body.file_a;
-  // Liste facoltative: senza nuove liste si riusano quelle di un caricamento precedente della stessa concessionaria,
-  // e serve il file giacenze più recente.
-  if (req.body.base_id != null) {
-    const { rows: bs } = await pool.query("SELECT id, file_a, stock_src FROM snapshots WHERE id = $1 AND dealer_id = $2", [+req.body.base_id, dealerId]);
-    if (!bs.length) return fail(res, 400, "Il caricamento con le liste da riusare non esiste più.");
-    if (!Array.isArray(rowsB) || !rowsB.length) return fail(res, 400, "Senza nuove liste movimentazione serve il file giacenze.");
-    const { rows: it } = await pool.query(`SELECT code, descr, loc, dg, cost, ord, smin, smax, regolarita, cons_mese, listino, qty_sold, to_char(last_sale, 'YYYYMMDD') AS ls, ven_spc, fab, giac, giac_lista
-      FROM items WHERE snapshot_id = $1 AND status <> 'nostorico' ORDER BY code COLLATE "C"`, [bs[0].id]);
-    rowsA = it.map(i => [i.code, i.descr, i.loc, i.dg, i.cost, i.ord, i.smin, i.smax, i.regolarita, i.cons_mese, i.listino,
-      i.ls ? +i.ls : i.qty_sold, i.ven_spc, i.fab, i.giac_lista != null ? i.giac_lista : bs[0].stock_src === "lista" ? i.giac : null]);
-    fileA = bs[0].file_a;
-  }
+  let rowsA = req.body.rowsA, rowsB = req.body.rowsB == null ? null : req.body.rowsB, perimN = null, nOut = 0;
   if (!Array.isArray(rowsA) || (rowsB !== null && !Array.isArray(rowsB))) return fail(res, 400, "Formato dati non valido.");
   const { rows: pr } = await pool.query("SELECT code FROM perimeter");
   if (pr.length) {
@@ -390,7 +378,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
     const k = result.kpi;
     const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico, stock_src, stock_ref, perim_n, n_out)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
-      [dealerId, week, u.id, String(fileA || "").slice(0, 200), result.stock.src === "lista" ? "" : String(req.body.file_b || "").slice(0, 200),
+      [dealerId, week, u.id, String(req.body.file_a || "").slice(0, 200), result.stock.src === "lista" ? "" : String(req.body.file_b || "").slice(0, 200),
        k.n_codes, k.val_tot, k.n_sotto, k.pz_sotto, k.val_sotto, k.n_eccesso, k.val_eccesso, k.n_fermo, k.val_fermo, k.n_nogiac, k.n_nostorico, result.stock.src, ref, perimN, perimN == null ? null : nOut]);
     const sid = s.rows[0].id;
     const CH = 5000;

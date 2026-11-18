@@ -442,9 +442,7 @@ const manyMissing = c => !!c && c.miss >= 10 && c.miss / c.withList > 0.25;
 const missChoice = () => { const U = state.upload, c = stockCompare(); return c && U.missKey === c.key && (U.miss === "lista" || U.miss === "zero") ? U.miss : null; };
 const needMissChoice = () => listStock().has && manyMissing(stockCompare()) && !missChoice();
 // Le giacenze sono a posto con un file giacenze in ordine, oppure, senza file, quando le liste le riportano.
-// Senza nuove liste (si riusano quelle dell'ultimo caricamento) serve il file giacenze.
-const reuseLists = () => !state.upload.A.length && !!state.upload.base;
-const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : !reuseLists() && listStock().has);
+const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : listStock().has);
 /* ============ Perimetro della rete ============
  * Se l'amministratore ha caricato un elenco di codici, ogni caricamento elabora solo quei codici (lo applica il server).
  * Qui serve per dire prima di salvare quanti codici dei file verranno elaborati. */
@@ -498,10 +496,10 @@ const slotReady = slot => state.upload[slot].length > 0 && state.upload[slot].ev
 function updateSave() {
   renderStockSum();
   const b = $("#save"); if (!b) return;
-  const U = state.upload, ok = (reuseLists() || slotReady("A")) && stockReady(); b.disabled = !ok;
+  const U = state.upload, ok = slotReady("A") && stockReady(); b.disabled = !ok;
   // senza file giacenze si salva con le giacenze delle liste, se le riportano
   b.textContent = !U.B.length && slotReady("A") && listStock().has ? "Salva con le giacenze delle liste" : "Incrocia e salva";
-  $("#sstat").textContent = ok ? "" : reuseLists() && !U.B.length ? "Carica il file giacenze più recente." : !U.A.length ? "Manca lo storico." : !slotReady("A") ? "Completa le colonne obbligatorie." : !U.B.length ? "Manca il file giacenze: le liste non riportano le giacenze."
+  $("#sstat").textContent = ok ? "" : !U.A.length ? "Manca lo storico." : !slotReady("A") ? "Completa le colonne obbligatorie." : !U.B.length ? "Manca il file giacenze: le liste non riportano le giacenze."
     : U.B.some(s => !entryMissing("B", s).length && needConfirm(s)) ? "Conferma le colonne del file giacenze." : !slotReady("B") ? "Completa le colonne obbligatorie." : "Scegli come trattare i codici assenti dal file giacenze.";
 }
 // Numeri scritti come testo (file CSV, celle di testo): «12,50», «1.250,00». Tutto il resto passa com'è.
@@ -530,11 +528,11 @@ async function save(onDone) {
     // i tracciati usati (intestazione → colonne) vengono ricordati per la concessionaria
     const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
     // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
-    const useB = U.B.length > 0, LS = listStock(), base = reuseLists() ? U.base.id : null;
-    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: base ? null : extract("A"), rowsB: useB ? extract("B") : null, base_id: base,
+    const useB = U.B.length > 0, LS = listStock();
+    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
       missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts });
     if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
-    U.A = []; U.B = []; U.miss = null; U.missKey = null; U.base = null;
+    U.A = []; U.B = []; U.miss = null; U.missKey = null;
     toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.${r.perim_n ? ` Perimetro della rete: ${fmtN(r.n_out)} codici dei file sono rimasti fuori.` : ""}`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     if (onDone) return onDone(r);
