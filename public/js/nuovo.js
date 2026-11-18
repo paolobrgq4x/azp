@@ -83,7 +83,8 @@ function wStep2(body, main) {
   const fresh = last && romeDay(last.uploaded_at) === romeDay(Date.now());
   body.innerHTML = `${last ? `<div class="msg${fresh ? "" : " old"}">Ultimo caricamento: ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}${last.uploaded_by_name ? `, da ${esc(last.uploaded_by_name)}` : ""}.${fresh ? "" : " Per un risultato aggiornato conviene caricare le liste e le giacenze più recenti."}
       <div class="row wrow"><button class="btn ${fresh ? "primary" : ""} sm" type="button" id="wuse">Usa questi dati e scegli i codici</button><span class="small muted">oppure carica i file qui sotto</span></div></div>` : ""}
-    <section class="step" id="stepA"><span class="num">PASSO 2 DI 5</span><h2>Carica le liste movimentazione</h2>
+    <section class="step" id="stepA"><span class="num">PASSO 2 DI 5</span><h2>Carica le liste movimentazione${last ? " (facoltativo)" : ""}</h2>
+      ${last ? `<p class="meta"><b>Se non carichi nuove liste</b>, si usano quelle dell'ultimo caricamento e al passo successivo carichi solo le giacenze più recenti.</p>` : ""}
       <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se riporta anche le giacenze (alla fine del mese precedente), il file giacenze del passo successivo è facoltativo. Se è divisa in più file, aggiungili tutti: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <div class="row"><label class="btn" for="fileA">Scegli i file Excel</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
@@ -93,7 +94,11 @@ function wStep2(body, main) {
   wireSlot("A"); renderSlot("A");
   if ($("#wuse")) $("#wuse").onclick = () => { W.snapId = last.id; W.lookup = null; wGo(main, 4); };
   $("#wback").onclick = () => wGo(main, 1);
-  $("#wnext").onclick = () => { if (!slotReady("A")) { toast(state.upload.A.length ? "Completa le colonne obbligatorie del file." : "Carica almeno un file delle liste movimentazione."); return; } wGo(main, 3); };
+  $("#wnext").onclick = () => {
+    if (U.A.length && !slotReady("A")) { toast("Completa le colonne obbligatorie del file."); return; }
+    if (!U.A.length && !last) { toast("Carica almeno un file delle liste movimentazione."); return; }
+    U.base = U.A.length ? null : last; wGo(main, 3);
+  };
 }
 function wireSlot(slot) {
   const inp = $("#file" + slot), step = $("#step" + slot);
@@ -103,10 +108,12 @@ function wireSlot(slot) {
   step.addEventListener("drop", e => { e.preventDefault(); step.classList.remove("drag"); handleFiles(slot, Array.from(e.dataTransfer.files)); });
 }
 function wStep3(body, main) {
-  const U = state.upload, opt = listStock().has;
-  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>${opt ? "Hai giacenze più recenti? (facoltativo)" : "Carica le giacenze attuali"}</h2>
+  const U = state.upload, reuse = reuseLists(), opt = !reuse && listStock().has;
+  const when = s => esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }));
+  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>${opt ? "Hai giacenze più recenti? (facoltativo)" : reuse ? "Carica le giacenze più recenti" : "Carica le giacenze attuali"}</h2>
+      ${reuse ? `<p class="meta">Non hai caricato nuove liste: si usano quelle dell'ultimo caricamento (${when(U.base)}) con le giacenze di questo file. I codici delle liste che nel file non ci sono contano come esauriti.</p>` : ""}
       <p class="meta">${opt ? "Le liste riportano già le giacenze: puoi salvare così. Se hai un file giacenze più recente caricalo: le sue giacenze sostituiscono quelle delle liste. " : ""}Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
-      <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
+      <p class="meta">Liste movimentazione: <b>${esc(reuse ? (U.base.file_a || "ultimo caricamento") + " (ultimo caricamento)" : U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
