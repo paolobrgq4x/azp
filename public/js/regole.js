@@ -153,8 +153,9 @@ function whyHtml(l) {
       ? (c.w === 0 ? `Vende in media <b>${n2(c.vr)}</b> pezzi al mese. Con il peso della regolarità a 0% l'importo si divide solo in base a questo.`
         : `Vende in media ${n2(c.ce)} pezzi al mese, ma non tutti i mesi (regolarità ${n2(c.reg)} su 12). Per dividere l'importo conta quindi come se ne vendesse <b>${n2(c.vr)}</b> al mese${c.w == null || c.w === 100 ? ` (${n2(c.ce)} × ${n2(c.reg)} ÷ 12)` : ` (peso della regolarità ${fmtN(c.w)}%)`}: chi vende in modo regolare riceve di più.`)
       : `Vende in media <b>${n2(c.vr)}</b> pezzi al mese. Nei dati manca la regolarità, quindi l'importo si divide in base a questo.`;
-    li.push(metro);
     const p2 = c.p2, p3 = c.p3;
+    // se il codice è già alla SMax, come si divide l'importo fino alla SMax non conta: la sua misura oltre la SMax è spiegata più sotto
+    if (!(p2 && !p2.room && p3 && !p3.dyn && c.level3 != null && c.vr > 0)) li.push(metro);
     if (!(c.vr > 0)) li.push("Non vende: non riceve una parte dell'importo.");
     else if (p2 && !p2.room) li.push(p2.tcap ? `È già al tetto di copertura di ${mesi(p2.tcap)}: non riceve altro.` : c.smin_qty ? "Con la SMin è già arrivato alla SMax: fino alla SMax non c'è altro spazio." : "È già alla SMax: fino alla SMax non c'è altro spazio.");
     else if (p2 && p2.capped) li.push(`Con la sua parte dell'importo riceve <b>${pezzi(p2.qty)}</b> e arriva ${p2.tcap ? `al tetto di copertura di ${mesi(p2.tcap)}` : "alla SMax"}${p3 && p3.qty ? "" : ": lì si ferma"}.`);
@@ -175,11 +176,22 @@ function whyHtml(l) {
     } else if (p3 && c.level3 != null) {
       // per consumo, per regolarità o misto: ognuno sale degli stessi mesi della propria misura
       const v3 = p3.vr != null ? p3.vr : c.vr, om = c.over === "lin" || !c.over ? "reg" : c.over;
-      const misura = om === "cons" ? `mesi di consumo (aumento per consumo: tutti salgono degli stessi mesi di scorta)`
-        : om === "mix" ? `mesi di vendita pesata (aumento misto, ${levTxt(c.w3)}: conta come se vendesse ${n2(v3)} pezzi al mese)`
-        : `mesi di vendite regolari (aumento per regolarità)`;
+      const nome = om === "cons" ? "consumo" : om === "mix" ? "vendita pesata" : "vendita regolare";
+      const come = om === "cons" ? `vende ${n2(v3)} pezzi al mese (aumento per consumo)`
+        : om === "mix" ? `conta come se vendesse ${n2(v3)} pezzi al mese: ${n2(c.ce)} × (${n2(c.reg)} ÷ 12)^${fmtN((c.w3 || 0) / 100, 1)} (aumento misto, ${levTxt(c.w3)})`
+        : `conta come se vendesse ${n2(v3)} pezzi al mese: ${n2(c.ce)} × ${n2(c.reg)} ÷ 12 (aumento per regolarità)`;
       const ideal = Math.max(0, c.level3 * v3 - p3.off), whole = Math.min(p3.qty, Math.floor(ideal + 1e-9)), more = p3.qty - whole;
-      li.push(`Oltre la SMax: quando tutti i codici sono arrivati alla SMax, il resto dell'importo ha dato a tutti <b>${lv(c.level3)}</b> ${misura}. Per questo codice ${lv(c.level3)} × ${n2(v3)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${p3.capped && ideal >= p3.qty + 1 ? `circa ${n1(ideal)} pezzi, ma c'è un tetto` : interi(ideal, whole)}${more > 0 && !p3.capped ? `, più <b>${pezzi(more)}</b> con l'ultimo avanzo dell'importo` : ""}.`);
+      li.push(c.avail3 != null && c.pm3 > 0
+        ? (() => {
+          const X = c.avail3, Z = c.off3 || 0, F = c.fix3 || 0, r = (X + Z - F) / c.pm3;
+          const conto = [fmtE(X), Z >= 1 ? `+ ${fmtE(Z)}` : "", F >= 1 ? `− ${fmtE(F)}` : ""].filter(Boolean).join(" ");
+          return `Oltre la SMax: portati tutti i codici alla SMax, dell'importo avanzavano <b>${fmtE(X)}</b>. Oltre la SMax ricevono pezzi ${fmtN(c.n3)} codici: un mese di ${nome} di questi codici insieme vale ${fmtE(c.pm3)} (per ognuno pezzi al mese × costo, sommati).`
+            + (Z >= 1 ? ` Alcuni avevano già pezzi sopra la SMax, per ${fmtE(Z)}: si contano come già comprati.` : "")
+            + (F >= 1 ? ` I codici fermi al tetto prendono ${fmtE(F)}.` : "")
+            + ` L'avanzo compra quindi ${Z >= 1 || F >= 1 ? `(${conto})` : conto} ÷ ${fmtE(c.pm3)} = ${Math.abs(r - c.level3) >= 0.05 ? `circa ${lv(r)} mesi di ${nome}. Si comprano però solo pezzi interi: ogni codice perde in media mezzo pezzo, così per spendere tutto l'importo il livello ${c.level3 > r ? "sale" : "scende"} a <b>${lv(c.level3)} mesi</b>, gli stessi per tutti i codici.` : `<b>${lv(c.level3)} mesi</b> di ${nome}, gli stessi per tutti i codici.`}`;
+        })()
+        : `Oltre la SMax: portati tutti i codici alla SMax, quello che avanzava dell'importo ha dato a tutti <b>${lv(c.level3)} mesi</b> di ${nome}.`);
+      li.push(`Questo codice ${come}. Quindi ${lv(c.level3)} × ${n2(v3)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${p3.capped && ideal >= p3.qty + 1 ? `circa ${n1(ideal)} pezzi, ma c'è un tetto` : interi(ideal, whole)}${more > 0 && !p3.capped ? `, più <b>${pezzi(more)}</b> con l'ultimo avanzo dell'importo` : ""}.`);
       if (p3.capped) li.push(p3.tcap ? `Tetto di copertura di ${mesi(p3.tcap)}: non può avere più di ${n1(c.ce * p3.tcap)} pezzi in tutto, quindi oltre la SMax riceve al massimo <b>${pezzi(p3.qty)}</b>.`
         : `Tetto oltre la SMax: al massimo ${mesi(c.limit)} di vendite medie, cioè ${fmtM(c.limit)} × ${n2(c.ce)} = ${n1(c.limit * c.ce)} pezzi. Oltre la SMax riceve quindi al massimo <b>${pezzi(p3.qty)}</b>${ideal >= p3.qty + 1 ? "" : ", gli stessi del calcolo sopra"}.`);
     }
