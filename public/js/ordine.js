@@ -201,7 +201,11 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   R.decFilter = R.decFilter || "tutte"; R.decShow = R.decShow || 100;
   const th = rules().alertMonths;
   R.decSort = R.decSort || { k: "value", dir: -1 };
-  const rows = sortDec(R.lines.map(l0 => { const l = effLine(R, l0); return { l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }; }), R.decSort);
+  // l'ordine si calcola quando si sceglie la colonna; cambiare una quantità o una decisione non sposta le righe
+  let rows = R.lines.map(l0 => { const l = effLine(R, l0); return { l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }; });
+  const sk = R.decSort.k + ":" + R.decSort.dir;
+  if (!R.decOrder || R.decOrderKey !== sk || R.decOrder.length !== rows.length) { R.decOrder = sortDec(rows, R.decSort).map(r => r.l.code); R.decOrderKey = sk; }
+  const pos = new Map(R.decOrder.map((c, i) => [c, i])); rows = rows.slice().sort((a, b) => (pos.get(a.l.code) ?? 1e9) - (pos.get(b.l.code) ?? 1e9));
   const nEd = rows.filter(r => r.l.edited).length;
   const cnt = { tutte: rows.length, alert: rows.filter(r => r.al.length).length, todo: rows.filter(r => !r.d).length, si: rows.filter(r => r.d === "si").length, no: rows.filter(r => r.d === "no").length };
   const acc = rows.filter(r => r.d === "si"), accV = acc.reduce((t, r) => t + r.l.value, 0), accQ = acc.reduce((t, r) => t + r.l.qty, 0);
