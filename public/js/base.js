@@ -171,7 +171,8 @@ const VIEWS = [
   { id: "codice", label: "Scheda codice" },
   { id: "regole", label: "Regole" },
   { id: "prova", label: "Dati di prova" },
-  { id: "admin", label: "Amministrazione", admin: true }
+  { id: "admin", label: "Amministrazione", admin: true },
+  { id: "probabilita", label: "Probabilità di vendita", hidden: true }
 ];
 function shell(view) {
   const u = state.me.user;
@@ -180,7 +181,7 @@ function shell(view) {
     : `<span class="who">${esc(u.dealer_name || "")}</span>`;
   $("#root").innerHTML = `<header class="topbar"><div class="brand">PartsPlanner</div>${dsel}
     <span class="who">${esc(u.full_name || u.username)}</span><button class="link" type="button" id="pwd">Password</button><button class="link" type="button" id="out">Esci</button></header>
-    <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.admin || isAdmin()).map(v => `<a href="/${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
+    <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.hidden && (!v.admin || isAdmin())).map(v => `<a href="/${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
     <main id="main"></main>`;
   $("#out").onclick = logout; $("#pwd").onclick = () => renderPassword(false);
   if ($("#dsel")) $("#dsel").onchange = e => {
@@ -216,7 +217,7 @@ function route() {
   if (location.hash && VIEWS.some(v => v.id === view)) history.replaceState(null, "", "/" + view);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) { view = isAdmin() ? "rete" : "nuovo"; history.replaceState(null, "", "/" + view); }
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, prova: viewProva, admin: viewAdmin }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, prova: viewProva, admin: viewAdmin, probabilita: viewProbabilita }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);

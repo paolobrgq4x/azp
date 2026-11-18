@@ -402,3 +402,13 @@ label.field select{max-width:100%;text-overflow:ellipsis}
 .dectab th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
 .dectab th.sortable:hover{color:var(--ink)}
 .dectab th .sarr{margin-left:4px;font-size:9px;color:var(--ink)}
+.prob p{margin:0}
+.prob h4{margin:6px 0 0;font-size:14px}
+.prob .q{font-weight:600}
+.prob .formula{font-family:Cambria,"Times New Roman",serif;font-size:17px;padding:10px 12px;background:var(--bg);border-radius:8px;line-height:2.2}
+.prob .formula sup{font-size:.7em;vertical-align:.7em;line-height:0}
+.prob .frac{display:inline-flex;flex-direction:column;align-items:center;vertical-align:middle;line-height:1.15}
+.prob .frac > span:first-child{border-bottom:1px solid currentColor;padding:0 3px}
+.prob .frac > span:last-child{padding:0 3px}
+.prob tr.hi td{background:var(--accent-soft);font-weight:600}
+.prob .tablebox{max-width:620px}

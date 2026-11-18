@@ -54,7 +54,7 @@ function wStep1(body, main) {
  * «x» è il prefisso degli id: «p» nella procedura guidata, «o» nella pagina degli scenari. */
 function overFields(x) {
   const r = rules(), om = overMode(r), dyn = om === "dyn", opt = (list, cur, f) => list.map(v => `<option value="${v}"${v === cur ? " selected" : ""}>${f(v)}</option>`).join("");
-  return `<fieldset class="overset"><legend>Come salire oltre la SMax</legend><div class="choices over">${OVER.map(([v, l, d, q]) => `<label class="choice${v === om ? " on" : ""}" for="${x}om_${v}"><input type="radio" name="${x}om" id="${x}om_${v}" value="${v}"${v === om ? " checked" : ""}><span><span class="q">${q}</span><b>${l}</b><span class="small muted">${d}</span></span></label>`).join("")}</div></fieldset>
+  return `<fieldset class="overset"><legend>Come salire oltre la SMax</legend><div class="choices over">${OVER.map(([v, l, d, q]) => `<label class="choice${v === om ? " on" : ""}" for="${x}om_${v}"><input type="radio" name="${x}om" id="${x}om_${v}" value="${v}"${v === om ? " checked" : ""}><span><span class="q">${q}</span><b>${l}</b><span class="small muted">${d}</span>${v === "dyn" ? `<a class="small" href="/probabilita" target="_blank" rel="noopener">Come si calcola la probabilità</a>` : ""}</span></label>`).join("")}</div></fieldset>
     ${om === "mix" ? leverHtml(x + "ow", r.overWeight) : ""}
     ${dyn ? `<label class="field" for="${x}sm">Rivendere i pezzi in più entro<select id="${x}sm">${opt(SELL_MONTHS, r.sellMonths, mm)}</select></label>
     <label class="field" for="${x}sp">Probabilità minima di vendita<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
