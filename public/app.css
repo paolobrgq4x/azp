@@ -388,3 +388,9 @@ label.field select{max-width:100%;text-overflow:ellipsis}
 .levrow{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink)}
 .levrow input[type=range]{flex:1;min-width:0;accent-color:var(--info)}
 .rctl .lever{margin-top:8px}
+
+/* «i» accanto alle scelte in blocco della tabella di conferma */
+.bulk{display:inline-flex;align-items:center;gap:4px}
+.ibtn{font:inherit;font-size:11px;font-weight:700;font-style:italic;font-family:Georgia,serif;width:18px;height:18px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--muted);padding:0;cursor:pointer;line-height:16px;text-align:center}
+.ibtn:hover,.ibtn[aria-expanded="true"]{border-color:var(--ink);color:var(--ink)}
+#binfo{margin:8px 0 0}

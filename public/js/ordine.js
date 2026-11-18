@@ -161,6 +161,12 @@ function effLine(R, l) {
   if (!e || e.p !== l.qty || e.q === l.qty) return { ...l, qty_prop: l.qty, edited: false };
   return { ...l, qty: e.q, qty_prop: l.qty, edited: true, value: e.q * l.cost, cover_after: l.cons_eff > 0 ? (l.disp + e.q) / l.cons_eff : null };
 }
+// scelte in blocco nella tabella di conferma, con la spiegazione che compare toccando la «i»
+const BULK = [
+  ["okNoAlert", "Sì a tutte senza avviso", "Accetta le righe ancora da decidere che non hanno un avviso. Le righe con un avviso restano da decidere e le scelte già fatte non cambiano."],
+  ["noAlert", "No a tutte con avviso", "Rifiuta tutte le righe che hanno un avviso: copertura dopo l'ordine oltre la soglia scelta, nessuna domanda registrata, oppure quantità cambiata a mano oltre la SMax. Le altre righe non cambiano."],
+  ["allSi", "Sì a tutte", "Accetta tutte le righe, anche quelle con un avviso e quelle che avevi già rifiutato. Le righe portate a zero pezzi restano rifiutate."]
+];
 function renderDecision(host, R, recalc, sel = "#ores") {
   // le decisioni restano legate alla quantità: se le regole cambiano la quantità, la riga torna da decidere
   if (!R.dec) {
@@ -187,8 +193,9 @@ function renderDecision(host, R, recalc, sel = "#ores") {
          <div><span class="k">Quantità cambiate</span><b>${fmtN(nEd)} righe</b>${nEd ? `<button class="link small" type="button" id="qreset">Torna alle quantità proposte</button>` : ""}</div>
     </div>
     <div class="bar"><div class="chips" role="group" aria-label="Filtra le righe">${filters.map(([k, l]) => `<button type="button" class="chip" data-df="${k}" aria-pressed="${R.decFilter === k}">${l}<span class="n">${fmtN(cnt[k])}</span></button>`).join("")}</div>
-      <div class="row"><button class="btn sm" type="button" data-bulk="okNoAlert">Sì a tutte senza avviso</button><button class="btn sm" type="button" data-bulk="noAlert">No a tutte con avviso</button><button class="btn sm" type="button" data-bulk="allSi">Sì a tutte</button><button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
-    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Quantità</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th></th><th>Accetto</th></tr></thead><tbody>
+      <div class="row">${BULK.map(([k, l, i]) => `<span class="bulk"><button class="btn sm" type="button" data-bulk="${k}">${l}</button><button class="ibtn" type="button" data-binfo="${k}" aria-label="Cosa fa «${l}»" aria-expanded="${R.binfo === k}" title="${esc(i)}">i</button></span>`).join("")}<button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
+    ${R.binfo ? `<p class="msg small" id="binfo">${esc((BULK.find(b => b[0] === R.binfo) || [])[2] || "")}</p>` : ""}
+    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Quantità</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th>Accetto</th></tr></thead><tbody>
       ${vis.slice(0, R.decShow).map(({ l, al, d }) => `<tr class="${d ? "d-" + d : ""}${al.length ? " has-al" : ""}"><td class="num muted">${l.rank}</td>
         <td class="code"><button type="button" data-c="${esc(l.code)}">${esc(l.code)}</button></td>
         <td class="desc" title="${esc(l.reasons.join(", "))}">${esc(l.descr)}</td>
@@ -201,7 +208,6 @@ function renderDecision(host, R, recalc, sel = "#ores") {
           <span class="sub">${l.edited ? `proposta ${fmtN(l.qty_prop)}` : l.partial ? "parziale" : ""} <button type="button" class="link small" data-why="${esc(l.code)}" aria-expanded="${R.why === l.code}">perché</button></span></td><td class="num">${fmtE2(l.value)}</td>
         <td class="num">${covTxt(l.cover_after)}${l.cover_after != null ? " mesi" : ""}</td>
         <td>${al.length ? `<span class="alert" title="${esc(al.join(" · "))}">⚠ ${esc(alShort(al, th))}</span>` : ""}</td>
-        <td><button class="link small" type="button" data-od="${esc(l.code)}" title="Escludi questo codice da tutti gli scenari">su richiesta</button></td>
         <td><div class="yn" role="group" aria-label="Accetto ${esc(l.code)}"><button type="button" class="ynb si" data-yn="si" data-code="${esc(l.code)}" aria-pressed="${d === "si"}">Sì</button><button type="button" class="ynb no" data-yn="no" data-code="${esc(l.code)}" aria-pressed="${d === "no"}">No</button></div></td></tr>${R.why === l.code ? `<tr class="whyrow"><td colspan="21"><div class="whybox"><b>Come è calcolata la quantità di ${esc(l.code)}</b>${whyHtml(l, R)}</div></td></tr>` : ""}`).join("")}
     </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
     <div class="decexp"><div class="small muted" id="dexpmsg">${cnt.todo ? `Mancano <b>${fmtN(cnt.todo)}</b> righe da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${fmtN(cnt.si)} righe, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
@@ -234,6 +240,7 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   });
   if ($("#qreset", host)) $("#qreset", host).onclick = async () => { if (!await confirmBox("Tornare alle quantità proposte?", "Le quantità cambiate a mano verranno annullate; le decisioni Sì/No restano.", "Annulla le modifiche", true)) return; R.qedit = {}; saveDec(); rer(); };
   $$("[data-yn]", host).forEach(b => b.onclick = () => { const c = b.dataset.code; R.dec[c] = R.dec[c] === b.dataset.yn ? "" : b.dataset.yn; if (!R.dec[c]) delete R.dec[c]; saveDec(); rer(); });
+  $$("[data-binfo]", host).forEach(b => b.onclick = () => { R.binfo = R.binfo === b.dataset.binfo ? null : b.dataset.binfo; rer(); });
   $$("[data-bulk]", host).forEach(b => b.onclick = async () => {
     const k = b.dataset.bulk;
     if (k === "reset") { if (!await confirmBox("Azzerare le decisioni?", "Tutte le righe torneranno da decidere e alle quantità proposte.", "Azzera", true)) return; R.dec = {}; R.qedit = {}; }
@@ -243,14 +250,6 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   });
   if ($("#dmore", host)) $("#dmore", host).onclick = () => { R.decShow += 200; rer(); };
   $$("[data-c]", host).forEach(b => b.onclick = () => { state.codice = b.dataset.c; go("codice"); });
-  $$("[data-od]", host).forEach(b => b.onclick = async () => {
-    b.disabled = true;
-    try {
-      await api("POST", `/api/dealers/${state.dealerId}/flags`, { codes: [b.dataset.od], note: "Escluso da uno scenario d'ordine" });
-      state.ordine.flags = await api("GET", `/api/dealers/${state.dealerId}/flags`); renderFlags();
-      toast(`${b.dataset.od} segnato come su richiesta: ricalcolo.`); if (recalc) recalc(); else $("#of").requestSubmit();
-    } catch (x) { b.disabled = false; if (!x.silent) toast(x.message); }
-  });
   $("#oxls", host).onclick = () => exportProposalXls(R);
   $("#dxls", host).onclick = () => exportConfirmedXls(R, rows);
   $("#dpdf", host).onclick = () => exportConfirmedPdf(R, rows);
