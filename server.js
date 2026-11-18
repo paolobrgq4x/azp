@@ -40,6 +40,8 @@ const PDF_FILES = { "jspdf.umd.min.js": path.join(distOf("jspdf"), "jspdf.umd.mi
 app.get("/vendor/:f", (req, res, next) => PDF_FILES[req.params.f] ? res.set("Cache-Control", "public, max-age=86400").sendFile(PDF_FILES[req.params.f]) : next());
 // Le pagine e gli script si ricontrollano sempre sul server, così dopo un aggiornamento non resta in uso una copia vecchia.
 app.use(express.static(path.join(__dirname, "public"), { index: "index.html", maxAge: 0, setHeaders: res => res.set("Cache-Control", "no-cache") }));
+// ogni sezione ha il suo indirizzo (/nuovo, /analisi…): è sempre la stessa pagina, che mostra la sezione giusta
+app.get(/^\/[a-z-]+\/?$/, (req, res) => res.set("Cache-Control", "no-cache").sendFile(path.join(__dirname, "public", "index.html")));
 // Versione delle pagine pubblicate: una pagina rimasta aperta la confronta con la sua e propone di ricaricare.
 // versione della pagina: cambia quando cambia uno qualsiasi dei file della pagina (anche quelli in public/js)
 const PAGE_FILES = ["app.js", "app.css", "index.html"].concat(require("fs").readdirSync(path.join(__dirname, "public", "js")).filter(f => f.endsWith(".js")).sort().map(f => "js/" + f));

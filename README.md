@@ -104,6 +104,7 @@ In «Dati di prova» il file giacenze si può generare in quattro tracciati dive
 - `public/` — interfaccia (HTML, CSS, JavaScript senza framework)
   - `index.html`, `app.css` — pagina e stile
   - `app.js` — avvio della pagina
+  - ogni sezione ha il suo indirizzo (`/nuovo`, `/analisi`, `/carica`…): il server risponde sempre con la stessa pagina, che mostra la sezione giusta; i vecchi indirizzi con il cancelletto (`/#nuovo`) portano allo stesso posto
   - `js/base.js` — funzioni comuni, accesso, menu e navigazione
   - `js/regole.js` — scenari, modi oltre la SMax, spiegazioni dei calcoli
   - `js/nuovo.js` — percorso guidato del nuovo caricamento

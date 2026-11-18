@@ -242,7 +242,7 @@ function renderDecision(host, R, recalc, sel = "#ores") {
     saveDec(); rer();
   });
   if ($("#dmore", host)) $("#dmore", host).onclick = () => { R.decShow += 200; rer(); };
-  $$("[data-c]", host).forEach(b => b.onclick = () => { state.codice = b.dataset.c; location.hash = "#codice"; });
+  $$("[data-c]", host).forEach(b => b.onclick = () => { state.codice = b.dataset.c; go("codice"); });
   $$("[data-od]", host).forEach(b => b.onclick = async () => {
     b.disabled = true;
     try {

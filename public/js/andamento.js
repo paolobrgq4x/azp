@@ -29,7 +29,7 @@ async function viewRete(main) {
     <td class="num">${r.snap_id ? fmtE(r.val_eccesso) : "–"}</td><td>${r.snap_id ? trend(r.val_eccesso, r.p_val_eccesso) : ""}</td>
     <td class="num">${r.snap_id ? fmtE(r.val_fermo) : "–"}</td><td>${r.snap_id ? trend(r.val_fermo, r.p_val_fermo) : ""}</td></tr>`).join("")}
   </tbody></table></div><p class="small muted">Tocca una riga per aprire l'analisi dei codici della concessionaria.</p>` : `<p class="muted">Nessuna concessionaria. Aggiungile da <a href="#admin">Amministrazione</a>.</p>`}</section>`;
-  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} location.hash = "#analisi"; });
+  $$("tr[data-d]", main).forEach(tr => tr.onclick = () => { state.dealerId = +tr.dataset.d; try { localStorage.setItem("ig_dealer", state.dealerId); } catch (x) {} go("analisi"); });
 }
 
 /* ============ Grafico a linea (piccoli multipli) ============ */
@@ -144,7 +144,7 @@ async function loadItems() {
       <td class="num"${r.giac_lista != null && r.giac_lista !== r.giac ? ` title="Nelle liste: ${fmtN(r.giac_lista)}"` : ""}>${fmtN(r.giac)}</td><td class="num">${data.prev_week ? v : "–"}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td>
       <td class="num">${d}</td><td class="num">${r.status === "ok" ? "–" : fmtN(r.streak)}</td><td class="num">${r.cost ? fmtE2(r.cost) : "–"}</td><td class="num">${r.val_giac ? fmtE2(r.val_giac) : "–"}</td><td class="num">${r.val_action ? fmtE2(r.val_action) : "–"}</td></tr>`;
   }).join("");
-  $$("[data-c]", t).forEach(b => b.onclick = () => { state.codice = b.dataset.c; location.hash = "#codice"; });
+  $$("[data-c]", t).forEach(b => b.onclick = () => { state.codice = b.dataset.c; go("codice"); });
   const from = A.offset + 1, to = A.offset + data.rows.length;
   $("#pager").innerHTML = `<span>Righe ${fmtN(from)}–${fmtN(to)} di ${fmtN(data.total)}</span><div class="row">
     <button class="btn sm" type="button" id="pprev"${A.offset ? "" : " disabled"}>Precedenti</button><button class="btn sm" type="button" id="pnext"${to < data.total ? "" : " disabled"}>Successive</button></div>`;

@@ -563,7 +563,7 @@ async function save(onDone) {
     toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.${r.perim_n ? ` Perimetro della rete: ${fmtN(r.n_out)} codici dei file sono rimasti fuori.` : ""}`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     if (onDone) return onDone(r);
-    location.hash = "#analisi";
+    go("analisi");
   } catch (e) {
     if (e.silent) return;
     err.hidden = false; err.textContent = e.message; st.textContent = ""; b.disabled = false;

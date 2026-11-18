@@ -117,7 +117,7 @@ function afterLogin() {
   state.dealers = state.me.dealers;
   let saved = null; try { saved = +localStorage.getItem("ig_dealer") || null; } catch (e) {}
   state.dealerId = isAdmin() ? (state.dealers.some(d => d.id === saved) ? saved : null) : state.me.user.dealer_id;
-  if (!location.hash) location.hash = isAdmin() ? "#rete" : "#nuovo";
+  if (!curView()) history.replaceState(null, "", isAdmin() ? "/rete" : "/nuovo");
   route();
 }
 function renderLogin(msg) {
@@ -161,7 +161,7 @@ function renderPassword(forced) {
     } catch (x) { if (!x.silent) { err.hidden = false; err.textContent = x.message; } }
   };
 }
-async function logout() { try { await api("POST", "/api/logout"); } catch (e) {} state.me = null; location.hash = ""; renderLogin(); }
+async function logout() { try { await api("POST", "/api/logout"); } catch (e) {} state.me = null; history.replaceState(null, "", "/"); renderLogin(); }
 
 /* ============ Struttura ============ */
 const VIEWS = [
@@ -181,13 +181,13 @@ function shell(view) {
     : `<span class="who">${esc(u.dealer_name || "")}</span>`;
   $("#root").innerHTML = `<header class="topbar"><div class="brand"><span class="dot"></span>Parts Planning</div>${dsel}
     <span class="who">${esc(u.full_name || u.username)}</span><button class="link" type="button" id="pwd">Password</button><button class="link" type="button" id="out">Esci</button></header>
-    <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.admin || isAdmin()).map(v => `<a href="#${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
+    <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.admin || isAdmin()).map(v => `<a href="/${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
     <main id="main"></main>`;
   $("#out").onclick = logout; $("#pwd").onclick = () => renderPassword(false);
   if ($("#dsel")) $("#dsel").onchange = e => {
     state.dealerId = +e.target.value || null; state.analisi.snapId = null; state.snapshots = [];
     try { localStorage.setItem("ig_dealer", state.dealerId || ""); } catch (x) {}
-    if (location.hash === "#rete" || location.hash === "#admin") location.hash = "#analisi"; else route();
+    if (curView() === "rete" || curView() === "admin") go("analisi"); else route();
   };
   document.title = (VIEWS.find(v => v.id === view) || {}).label + " · Parts Planning";
   return $("#main");
@@ -201,13 +201,29 @@ function needDealer(main) {
 }
 async function loadSnapshots() { state.snapshots = await api("GET", `/api/dealers/${state.dealerId}/snapshots`); return state.snapshots; }
 
+// ogni sezione ha il suo indirizzo: /nuovo, /analisi, /carica…
+function curView() { return location.pathname.replace(/^\/+|\/+$/g, "") || (location.hash || "#").slice(1); }
+function go(view) {
+  if (location.pathname !== "/" + view || location.hash) history.pushState(null, "", "/" + view);
+  route();
+}
 function route() {
   if (!state.me) return;
   checkVersion();
-  let view = (location.hash || "#").slice(1);
-  if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) view = isAdmin() ? "rete" : "nuovo";
+  let view = curView();
+  // i vecchi indirizzi con il cancelletto (#nuovo) diventano indirizzi veri (/nuovo)
+  if (location.hash && VIEWS.some(v => v.id === view)) history.replaceState(null, "", "/" + view);
+  if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) { view = isAdmin() ? "rete" : "nuovo"; history.replaceState(null, "", "/" + view); }
   const main = shell(view);
   const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);
+window.addEventListener("popstate", route);
+// i collegamenti interni («/nuovo», «#carica») cambiano sezione senza ricaricare la pagina
+document.addEventListener("click", e => {
+  const a = e.target.closest && e.target.closest("a[href]");
+  if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target || a.hasAttribute("download")) return;
+  const m = a.getAttribute("href").match(/^[#/]([a-z]+)$/);
+  if (m && VIEWS.some(v => v.id === m[1])) { e.preventDefault(); go(m[1]); }
+});
