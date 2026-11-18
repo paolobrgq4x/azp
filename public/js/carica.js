@@ -1,5 +1,5 @@
 "use strict";
-/* PartsPlanner · caricamento dei file: lettura, riconoscimento delle colonne, giacenze, perimetro */
+/* PartsPlanner · caricamento dei file (usato da «Nuovo ordine»): lettura, riconoscimento delle colonne, giacenze, perimetro */
 
 /* ============ Caricamento dei dati ============ */
 const FIELDS_A = [
@@ -295,33 +295,6 @@ function readFile(file) {
     } catch (e) { rej(new Error(`Non riesco a leggere «${file.name}». Deve essere un Excel (.xlsx o .xls) non protetto da password.`)); } };
     fr.onerror = () => rej(new Error("Lettura del file non riuscita.")); fr.readAsArrayBuffer(file);
   });
-}
-async function viewCarica(main) {
-  await loadPerim();
-  if (needDealer(main)) return;
-  const U = state.upload;
-  main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione più recenti. Il file giacenze serve se le liste non riportano le giacenze, oppure se ne hai uno più recente. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
-  <div class="msg err" id="uerr" hidden></div>
-  <section class="grid2">
-    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Se riporta anche le giacenze (alla fine del mese precedente), puoi calcolare già con questa. Puoi scegliere più file: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
-      <div id="listA"></div>
-      <label class="btn" for="fileA">Aggiungi file storico</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Le giacenze di oggi sostituiscono quelle riportate dalle liste: è facoltativo se le liste le riportano, obbligatorio se non le riportano. Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
-      <div id="listB"></div>
-      <label class="btn" for="fileB">Aggiungi file giacenza</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-  </section>
-  <div id="stocksum"></div>
-  <div class="row"><button class="btn primary" type="button" id="save" disabled>Incrocia e salva</button><span class="small muted" id="sstat"></span></div>`;
-  ["A", "B"].forEach(slot => {
-    const inp = $("#file" + slot), step = $("#step" + slot);
-    inp.onchange = () => { handleFiles(slot, Array.from(inp.files)); inp.value = ""; };
-    step.addEventListener("dragover", e => { e.preventDefault(); step.classList.add("drag"); });
-    step.addEventListener("dragleave", () => step.classList.remove("drag"));
-    step.addEventListener("drop", e => { e.preventDefault(); step.classList.remove("drag"); handleFiles(slot, Array.from(e.dataTransfer.files)); });
-    renderSlot(slot);
-  });
-  updateSave();
-  $("#save").onclick = () => save(false);
 }
 async function handleFiles(slot, files) {
   if (!files.length) return; const err = $("#uerr"); err.hidden = true;

@@ -96,7 +96,7 @@ async function viewAnalisi(main) {
   if (needDealer(main)) return;
   main.innerHTML = `<div class="panel"><p class="muted">Caricamento…</p></div>`;
   const snaps = state.snapshots.length ? state.snapshots : await loadSnapshots();
-  if (!snaps.length) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica liste movimentazione e giacenze per iniziare.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`; return; }
+  if (!snaps.length) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica le liste movimentazione da «Nuovo ordine» per iniziare.</p><div><a class="btn primary" href="/nuovo">Nuovo ordine</a></div></div>`; return; }
   const A = state.analisi;
   if (!snaps.some(s => s.id === A.snapId)) { A.snapId = snaps[snaps.length - 1].id; A.offset = 0; }
   main.innerHTML = `<div class="head"><div><h1>Analisi codici</h1><p class="sub">${esc(dealerName(state.dealerId))}<br><span id="asnap">${snapNote(snaps, A.snapId)}</span></p></div>
@@ -177,4 +177,4 @@ async function exportXls() {
 function weekSelect(id, snaps, cur) {
   return `<label class="field" for="${id}">Dati del<select id="${id}">${snaps.slice().reverse().map(s => `<option value="${s.id}"${s.id === cur ? " selected" : ""}>${esc(snapLabel(s.week_date, s.uploaded_at))}</option>`).join("")}</select></label>`;
 }
-function noWeeks(main) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica liste movimentazione e giacenze per iniziare.</p><div><a class="btn primary" href="#carica">Carica dati</a></div></div>`; }
+function noWeeks(main) { main.innerHTML = `<div class="panel"><h2>Nessun caricamento</h2><p class="muted">Carica le liste movimentazione da «Nuovo ordine» per iniziare.</p><div><a class="btn primary" href="/nuovo">Nuovo ordine</a></div></div>`; }

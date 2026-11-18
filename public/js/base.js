@@ -170,7 +170,6 @@ const VIEWS = [
   { id: "analisi", label: "Analisi codici" },
   { id: "codice", label: "Scheda codice" },
   { id: "regole", label: "Regole" },
-  { id: "carica", label: "Carica dati" },
   { id: "prova", label: "Dati di prova" },
   { id: "admin", label: "Amministrazione", admin: true }
 ];
@@ -201,7 +200,7 @@ function needDealer(main) {
 }
 async function loadSnapshots() { state.snapshots = await api("GET", `/api/dealers/${state.dealerId}/snapshots`); return state.snapshots; }
 
-// ogni sezione ha il suo indirizzo: /nuovo, /analisi, /carica…
+// ogni sezione ha il suo indirizzo: /nuovo, /analisi, /regole…
 function curView() { return location.pathname.replace(/^\/+|\/+$/g, "") || (location.hash || "#").slice(1); }
 function go(view) {
   if (location.pathname !== "/" + view || location.hash) history.pushState(null, "", "/" + view);
@@ -211,16 +210,18 @@ function route() {
   if (!state.me) return;
   checkVersion();
   let view = curView();
+  // la vecchia pagina «Carica dati» è confluita in «Nuovo ordine»
+  if (view === "carica") { view = "nuovo"; history.replaceState(null, "", "/nuovo"); }
   // i vecchi indirizzi con il cancelletto (#nuovo) diventano indirizzi veri (/nuovo)
   if (location.hash && VIEWS.some(v => v.id === view)) history.replaceState(null, "", "/" + view);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) { view = isAdmin() ? "rete" : "nuovo"; history.replaceState(null, "", "/" + view); }
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, carica: viewCarica, prova: viewProva, admin: viewAdmin }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, prova: viewProva, admin: viewAdmin }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);
 window.addEventListener("popstate", route);
-// i collegamenti interni («/nuovo», «#carica») cambiano sezione senza ricaricare la pagina
+// i collegamenti interni («/nuovo», «#nuovo») cambiano sezione senza ricaricare la pagina
 document.addEventListener("click", e => {
   const a = e.target.closest && e.target.closest("a[href]");
   if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target || a.hasAttribute("download")) return;
