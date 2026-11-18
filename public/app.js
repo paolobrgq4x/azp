@@ -2010,11 +2010,31 @@ const TRACCIATI_A = [["export", "Export mensile (Annomese, Particolare, Giacenza
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const hcode = c => { let h = 0; for (const ch of String(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const FAM = ["RCP", "RCO", "KDA", "KAB", "ECA", "KGA", "NNA", "KDT"], GVS = ["1", "2", "3", "3", "5A", "5C"];
+/* Forma dei dati nell'export: codici come quelli dei ricambi (tre caratteri, il gruppo principale, cinque cifre, a volte lettere in coda;
+ * qualche normalizzato «N  9…»), DG di quattro caratteri, locazioni come A01HJ. Il gruppo principale resta il quarto carattere del codice.
+ * La stessa conversione vale per le liste e per il file giacenze, così i codici dei due file coincidono. */
+const X_PRE = ["1K0", "1T0", "1S0", "2K5", "3C0", "3G0", "5G0", "5Q0", "5N0", "6R0", "7N0", "03L", "03N", "04E", "04L", "06K", "0AM", "2Q0"];
+const X_SUF = ["A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "P", "Q", "R", "S", "T"];
+const X_MERC = ["01 - RICAMBI", "01 - RICAMBI", "01 - RICAMBI", "02 - RICAMBI", "03 - RICAMBI", "03 - RICAMBI", "04 - RICAMBI", "06 - RICAMBI", "08 - RICAMBI"];
+function codeMapper(seed) {
+  const R = rng(seed ^ 0x5a17), used = new Set(), map = new Map(), pick = a => a[Math.floor(R() * a.length)], d = n => { let t = ""; for (let i = 0; i < n; i++) t += Math.floor(R() * 10); return t; };
+  return c => {
+    if (map.has(c)) return map.get(c);
+    const g = String(c)[3] || "0"; let x;
+    do {
+      const u = R();
+      x = u < .03 ? `N  9${pick(["0", "1"])}${g}${d(5)}` : `${pick(X_PRE)}${g}${d(5)}${u < .45 ? "" : u < .85 ? pick(X_SUF) : pick(X_SUF) + pick(X_SUF)}`;
+    } while (used.has(x.replace(/\s+/g, "")));
+    used.add(x.replace(/\s+/g, "")); map.set(c, x); return x;
+  };
+}
+const xDG = dg => { const h = hcode(dg); return "H" + "MNPRSZ"[h % 6] + ((h >>> 3) % 3 === 0 ? "ZZ" : String((h >>> 5) % 40 + 1).padStart(2, "0")); };
+const xLoc = loc => { if (!loc) return null; const h = hcode(loc), L = "ABCDEFGHJ", A = "ABCDEFGHIJKLMNPRS0123456789"; return `${"AB"[h % 2]}${String((h >>> 1) % 20 + 1).padStart(2, "0")}${L[(h >>> 6) % L.length]}${A[(h >>> 10) % A.length]}`; };
 // da una riga della lista disposizione (DG, codice, descrizione, locazione, listino, netto, venduto, ven. speciali, giacenza, ordini, FAB, regolarità, consumo, SMin, SMax, scad.) a una riga dell'export
-function exportRows(A) {
-  const am = prevMonth();
+function exportRows(A, cm) {
+  const am = prevMonth(), C = cm || (c => c);
   return [G_HDR_X].concat(A.map(r => { const h = hcode(r[1]), g = r[8];
-    return [am, "00999", r[0], "V", r[1], r[2], FAM[h % FAM.length], null, null, r[4], r[5], g, g == null ? null : Math.round(g * r[5] * 100) / 100, r[6], r[10], r[11], r[12], r[13], r[14], GVS[(h >>> 5) % GVS.length], r[3], "01 - RICAMBI"]; }));
+    return [am, "00999", xDG(r[0]), h % 7 === 0 ? "A" : "V", C(r[1]), r[2], FAM[h % FAM.length], null, null, r[4], r[5], g, g == null ? null : Math.round(g * r[5] * 100) / 100, r[6], r[10], r[11], r[12], r[13], r[14], GVS[(h >>> 5) % GVS.length], xLoc(r[3]), X_MERC[(h >>> 9) % X_MERC.length]]; }));
 }
 const hdrA = withStock => G_HDR_A.map((h, i) => (i === G_COL_GIAC && withStock ? h + monthEnd() : h));
 function generateData(o) {
@@ -2149,7 +2169,7 @@ async function viewProva(main) {
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
-    <li><b>Lista movimentazione</b>, due tracciati. «Export mensile»: foglio «Export», intestazione sulla prima riga e 22 colonne da Annomese a Codice merceologico; Annomese è il mese scorso e la colonna Giacenza riporta le giacenze all'ultimo giorno di quel mese; non c'è la colonna degli ordini aperti. «Lista disposizione»: foglio «Liste Movimentazione», riga di titolo e 16 colonne da DG a Scad, con gli ordini aperti.</li>
+    <li><b>Lista movimentazione</b>, due tracciati. «Export mensile»: come il file mensile reale, foglio «Export», intestazione sulla prima riga e 22 colonne da Annomese a Codice merceologico, codici nella forma dei ricambi (per esempio 5Q0819669 o 03N115562B, a volte normalizzati «N  9…»); Annomese è il mese scorso e la colonna Giacenza riporta le giacenze all'ultimo giorno di quel mese; non c'è la colonna degli ordini aperti. «Lista disposizione»: foglio «Liste Movimentazione», riga di titolo e 16 colonne da DG a Scad, con gli ordini aperti.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
     <li><b>Giacenze riportate nelle liste</b>: la lista ha una colonna con la giacenza di ogni codice alla fine del mese scorso; il file giacenze è la situazione di oggi, circa due settimane dopo. Tra le due date si è venduto, per qualche codice è arrivato un riordino e qualche codice è andato esaurito e non compare più nel file giacenze. Puoi caricare solo la lista, e i calcoli usano le sue giacenze, oppure anche il file giacenze, che le sostituisce. Con la colonna vuota il file giacenze è obbligatorio.</li>
     <li><b>Tracciato del file giacenze</b>: gli stessi dati si possono avere in forme diverse, per provare che la piattaforma trova da sola codice e giacenza. «Altro gestionale» ha un titolo, colonne con altri nomi e in altro ordine, più impegnato, in arrivo, costo e data; «sigle» ha nomi che non dicono niente e tre colonne di quantità, quindi la prima volta la piattaforma chiede conferma e poi se ne ricorda; «solo dati» non ha intestazione.</li>
@@ -2168,15 +2188,15 @@ async function viewProva(main) {
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
       st.textContent = "Genero i dati…"; await new Promise(r => setTimeout(r, 30));
-      const G = generateTarget(P), weeks = G.weeks, zip = new window.JSZip();
+      const G = generateTarget(P), weeks = G.weeks, zip = new window.JSZip(), cm = P.fmtA !== "lista" ? codeMapper(P.seed) : null;
       for (let w = 0; w < weeks.length; w++) {
         const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
         st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
         const wa = XLSX.utils.book_new(), ex = P.fmtA !== "lista";
-        const sa = XLSX.utils.aoa_to_sheet(ex ? exportRows(weeks[w].A) : [["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
+        const sa = XLSX.utils.aoa_to_sheet(ex ? exportRows(weeks[w].A, cm) : [["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
         XLSX.utils.book_append_sheet(wa, sa, ex ? "Export" : "Liste Movimentazione");
         zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
-        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(cm ? weeks[w].B.map(r => [cm(r[0])].concat(r.slice(1))) : weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
         zip.file(`${tag}_2_giacenze.xlsx`, XLSX.write(wb, { bookType: "xlsx", type: "array" }));
       }
       st.textContent = "Comprimo i file…";
