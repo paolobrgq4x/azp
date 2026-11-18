@@ -52,6 +52,15 @@ La probabilità: nel periodo il codice vende in media vendita regolare × mesi, 
 
 Nella proposta da confermare ogni riga ha la quantità in un campo modificabile. Cambiandola si aggiornano subito valore della riga, copertura dopo l'ordine e totali, e la riga viene accettata (a zero, rifiutata). La quantità proposta resta indicata sotto il campo; se supera la SMax compare l'avviso «Oltre SMax». Le modifiche restano nel browser finché la proposta di quel codice non cambia; «Torna alle quantità proposte» le annulla. L'Excel dell'ordine confermato riporta quantità proposta, quantità scelta e «Modificata a mano»; nel PDF le quantità cambiate hanno l'asterisco.
 
+## Perimetro della rete
+
+L'amministratore può caricare, in «Amministrazione», un Excel con un elenco di codici valido per tutte le concessionarie. Da quel momento gli utenti possono caricare tutto il magazzino, ma ogni caricamento elabora e salva solo i codici dell'elenco: indicatori, analisi, scheda codice e ordini lavorano solo su quelli. La colonna del codice si riconosce dal nome (come nelle liste), altrimenti vale la prima colonna; i doppioni si contano una volta.
+
+- Vale dai caricamenti successivi: quelli già fatti restano come sono.
+- Prima di salvare la pagina dice quanti codici delle liste entrano nel perimetro; dopo, quanti sono rimasti fuori.
+- Ogni caricamento registra quanti codici aveva il perimetro (`perim_n`) e quanti codici dei file sono rimasti fuori (`n_out`).
+- L'elenco si può scaricare, sostituire o togliere. Senza elenco si lavora su tutto il magazzino.
+
 ## Quali giacenze si usano
 
 Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la situazione al momento dell'estrazione.

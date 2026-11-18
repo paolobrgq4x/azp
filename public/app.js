@@ -513,6 +513,7 @@ function overBind(x, redraw) {
   leverBind($("#" + x + "ow"), () => { overRead(x); saveRules(); });
 }
 function wStep2(body, main) {
+  if (!state.perim) loadPerim().then(() => { if (typeof updateSave === "function") updateSave(); });
   const U = state.upload, last = state.snapshots[state.snapshots.length - 1];
   const fresh = last && romeDay(last.uploaded_at) === romeDay(Date.now());
   body.innerHTML = `${last ? `<div class="msg${fresh ? "" : " old"}">Ultimo caricamento: ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}${last.uploaded_by_name ? `, da ${esc(last.uploaded_by_name)}` : ""}.${fresh ? "" : " Per un risultato aggiornato conviene caricare le liste e le giacenze più recenti."}
@@ -727,7 +728,7 @@ async function viewAndamento(main) {
   }
   const L = snaps[snaps.length - 1], P = snaps.length > 1 ? snaps[snaps.length - 2] : null;
   const pv = k => P ? P[k] : null;
-  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio<br>${esc(stockNote(L))}</p></div>
+  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio<br>${esc(stockNote(L))}${L.perim_n ? ` · perimetro della rete: ${fmtN(L.perim_n)} codici` : ""}</p></div>
     <div class="row"><a class="btn" href="#analisi">Analizza i codici</a><a class="btn primary" href="#carica">Carica dati</a></div></div>
   <section class="tiles">
     <div class="tile"><span class="k">Valore a magazzino</span><span class="v">${fmtE(L.val_tot)}</span><span class="s">${fmtN(L.n_codes)} codici · ${trend(L.val_tot, pv("val_tot"))}</span></div>
@@ -1837,6 +1838,7 @@ function readFile(file) {
   });
 }
 async function viewCarica(main) {
+  await loadPerim();
   if (needDealer(main)) return;
   const U = state.upload;
   main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione più recenti. Il file giacenze serve se le liste non riportano le giacenze, oppure se ne hai uno più recente. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
@@ -2009,9 +2011,28 @@ const missChoice = () => { const U = state.upload, c = stockCompare(); return c 
 const needMissChoice = () => listStock().has && manyMissing(stockCompare()) && !missChoice();
 // Le giacenze sono a posto con un file giacenze in ordine, oppure, senza file, quando le liste le riportano.
 const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : listStock().has);
+/* ============ Perimetro della rete ============
+ * Se l'amministratore ha caricato un elenco di codici, ogni caricamento elabora solo quei codici (lo applica il server).
+ * Qui serve per dire prima di salvare quanti codici dei file verranno elaborati. */
+async function loadPerim(force) {
+  if (state.perim && !force) return state.perim;
+  try {
+    const P = await api("GET", "/api/perimeter");
+    P.set = P.active ? new Set((await api("GET", "/api/perimeter/codes")).codes) : null;
+    state.perim = P;
+  } catch (e) { state.perim = { active: false, set: null }; }
+  return state.perim;
+}
+function perimNote() {
+  const P = state.perim; if (!P || !P.active || !P.set || !state.upload.A.length) return "";
+  const seen = new Set(); let inP = 0;
+  for (const r of extract("A")) { const c = codeKey(r[0]); if (!c || seen.has(c)) continue; seen.add(c); if (P.set.has(c)) inP++; }
+  return `Perimetro della rete: l'amministratore ha scelto ${fmtN(P.n)} codici e vengono elaborati solo quelli. Delle tue liste ne entrano ${fmtN(inP)} su ${fmtN(seen.size)}; gli altri ${fmtN(seen.size - inP)} non vengono salvati.`;
+}
 function stockSumHtml() {
   const h = stockSumCore(); if (!h) return h;
   const U = state.upload, LS = listStock(), notes = [];
+  const pn = perimNote(); if (pn) notes.push(pn);
   if (LS.months > 1) notes.push(`Le liste contengono ${fmtN(LS.months)} mesi: uso solo il più recente (${monthLabel(LS.latest)}); ${fmtN(LS.drop)} righe dei mesi precedenti sono ignorate.`);
   if (U.A.every(s => s.map.ord == null)) notes.push("Le liste non hanno la colonna degli ordini aperti: per la piattaforma sono zero. Se ci sono ordini in arrivo, la proposta può ordinarli di nuovo.");
   return notes.length ? h.replace(/<\/div>$/, notes.map(n => `<p class="small">${esc(n)}</p>`).join("") + "</div>") : h;
@@ -2080,7 +2101,7 @@ async function save(onDone) {
       missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts });
     if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
     U.A = []; U.B = []; U.miss = null; U.missKey = null;
-    toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.`);
+    toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.${r.perim_n ? ` Perimetro della rete: ${fmtN(r.n_out)} codici dei file sono rimasti fuori.` : ""}`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     if (onDone) return onDone(r);
     location.hash = "#analisi";
@@ -2321,6 +2342,50 @@ async function viewProva(main) {
 }
 
 /* ============ Amministrazione ============ */
+// Codici di un file per il perimetro: la colonna del codice si riconosce dal nome (come nelle liste), altrimenti è la prima colonna.
+function perimCodes(wb) {
+  for (const name of Object.keys(wb.sheets)) {
+    const rows = wb.sheets[name] || []; if (!rows.length) continue;
+    const a = analyseSheet(rows, [FIELDS_A[0]]), named = a.map.code != null && a.score > 0;
+    const col = named ? a.map.code : 0, from = named ? a.headerRow + 1 : 0, hdr = named ? (rows[a.headerRow] || [])[col] : null;
+    const codes = [], seen = new Set();
+    for (let i = from; i < rows.length; i++) { const c = codeKey((rows[i] || [])[col]); if (!c || seen.has(c) || !/[0-9]/.test(c)) continue; seen.add(c); codes.push(c); }
+    if (codes.length) return { sheet: name, col, hdr, codes };
+  }
+  return null;
+}
+async function renderPerim(host) {
+  const P = await loadPerim(true);
+  host.innerHTML = `<div class="bar"><div><h2>Perimetro della rete</h2><p class="small muted">Un elenco di codici valido per tutte le concessionarie: gli utenti possono caricare tutto il magazzino, ma la piattaforma elabora e salva solo questi codici. Vale dai caricamenti successivi; quelli già fatti restano come sono. Senza elenco si lavora su tutto il magazzino.</p></div></div>
+    ${P.active ? `<div class="msg">Perimetro attivo: <b>${fmtN(P.n)} codici</b>${P.file ? ` da «${esc(P.file)}»` : ""}${P.set_at ? `, caricato il ${esc(new Date(P.set_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}` : ""}${P.set_by ? ` da ${esc(P.set_by)}` : ""}.</div>` : `<div class="msg">Nessun perimetro: si lavora su tutto il magazzino.</div>`}
+    <div class="row"><label class="btn" for="pfile">${P.active ? "Sostituisci con un altro Excel" : "Carica l'Excel dei codici"}</label><input type="file" id="pfile" accept=".xlsx,.xls,.xlsm,.csv">
+      ${P.active ? `<button class="btn" type="button" id="pdl">Scarica l'elenco</button><button class="btn danger" type="button" id="prm">Togli il perimetro</button>` : ""}</div>
+    <div id="pprev"></div>`;
+  $("#pfile", host).onchange = async e => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    const box = $("#pprev", host);
+    try {
+      const wb = await readFile(f), got = perimCodes(wb);
+      if (!got) { box.innerHTML = `<div class="msg err">Nel file non ho trovato codici.</div>`; return; }
+      box.innerHTML = `<div class="msg"><b>${fmtN(got.codes.length)} codici</b> nel foglio «${esc(got.sheet)}», colonna ${colL(got.col)}${got.hdr ? ` «${esc(got.hdr)}»` : ""}. Primi codici: <span class="mono">${got.codes.slice(0, 8).map(esc).join(", ")}</span>${got.codes.length > 8 ? "…" : ""}</div>
+        <div class="row"><button class="btn primary" type="button" id="psave">Usa questi ${fmtN(got.codes.length)} codici come perimetro</button><button class="link" type="button" id="pno">Annulla</button></div>`;
+      $("#pno", host).onclick = () => { box.innerHTML = ""; };
+      $("#psave", host).onclick = async () => {
+        if (!await confirmBox("Usare questo perimetro?", `Da ora tutte le concessionarie avranno elaborati solo questi ${fmtN(got.codes.length)} codici. I caricamenti già fatti non cambiano.`, "Usa il perimetro")) return;
+        try { await api("PUT", "/api/perimeter", { codes: got.codes, file: f.name }); toast(`Perimetro salvato: ${fmtN(got.codes.length)} codici.`); renderPerim(host); }
+        catch (x) { if (!x.silent) toast(x.message); }
+      };
+    } catch (x) { box.innerHTML = `<div class="msg err">${esc(x.message)}</div>`; }
+  };
+  if ($("#pdl", host)) $("#pdl", host).onclick = () => {
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Codice particolare"]].concat([...P.set].sort().map(c => [c]))), "Perimetro");
+    XLSX.writeFile(wb, "perimetro_rete.xlsx");
+  };
+  if ($("#prm", host)) $("#prm", host).onclick = async () => {
+    if (!await confirmBox("Togliere il perimetro?", "Dai prossimi caricamenti si tornerà a lavorare su tutto il magazzino. I caricamenti già fatti non cambiano.", "Togli il perimetro", true)) return;
+    try { await api("DELETE", "/api/perimeter"); toast("Perimetro tolto."); renderPerim(host); } catch (x) { if (!x.silent) toast(x.message); }
+  };
+}
 async function viewAdmin(main) {
   main.innerHTML = `<div class="panel"><p class="muted">Caricamento…</p></div>`;
   const [dealers, users, uploads] = await Promise.all([api("GET", "/api/dealers"), api("GET", "/api/users"), api("GET", "/api/uploads")]);
@@ -2338,6 +2403,7 @@ async function viewAdmin(main) {
       <label class="field" for="ud">Concessionaria<select id="ud">${dealers.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join("")}</select></label>
       <button class="btn primary" type="submit">Crea utente</button></div></form>
   </section>
+  <section class="panel" id="perim"></section>
   <section class="panel"><h2>Concessionarie</h2>${dealers.length ? `<div class="tablebox"><table><thead><tr><th>Concessionaria</th><th>Codice</th><th class="num">Caricamenti</th><th class="num">Utenti attivi</th><th></th></tr></thead><tbody>
     ${dealers.map(d => `<tr><td><b>${esc(d.name)}</b></td><td class="mono">${esc(d.code || "–")}</td><td class="num">${fmtN(d.n_weeks)}</td><td class="num">${fmtN(d.n_users)}</td><td><div class="row"><button class="btn sm" type="button" data-ed="${d.id}">Rinomina</button><button class="btn sm danger" type="button" data-wipe="${d.id}"${d.n_weeks ? "" : " disabled"}>Svuota dati</button><button class="btn sm danger" type="button" data-deld="${d.id}">Elimina</button></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">Nessuna concessionaria.</p>`}</section>
   <section class="panel"><div class="bar"><div><h2>Caricamenti</h2><p class="small muted">Ogni riga è un caricamento di liste movimentazione e giacenze. I file Excel originali non vengono conservati: eliminando un caricamento si cancellano tutti i dati ricavati da quei file.</p></div>
@@ -2349,6 +2415,7 @@ async function viewAdmin(main) {
       <td>${u.active ? `<span class="pill ok">Attivo</span>` : `<span class="pill off">Disattivato</span>`}</td>
       <td><div class="row"><button class="btn sm" type="button" data-reset="${u.id}">Nuova password</button>${u.id !== state.me.user.id ? `<button class="btn sm" type="button" data-act="${u.id}" data-v="${u.active ? 0 : 1}">${u.active ? "Disattiva" : "Riattiva"}</button><button class="btn sm danger" type="button" data-delu="${u.id}" data-name="${esc(u.username)}">Elimina</button>` : ""}</div></td></tr>`).join("")}
   </tbody></table></div></section>`;
+  renderPerim($("#perim"));
   const ur = $("#ur"), ud = $("#ud"); ur.onchange = () => { ud.disabled = ur.value === "admin"; };
   $("#df").onsubmit = async e => { e.preventDefault(); try { await api("POST", "/api/dealers", { name: $("#dn").value, code: $("#dc").value }); toast("Concessionaria aggiunta."); state.me = await api("GET", "/api/me"); state.dealers = state.me.dealers; route(); } catch (x) { if (!x.silent) toast(x.message); } };
   $("#uf").onsubmit = async e => {

@@ -307,6 +307,41 @@ app.get("/api/dealers/:id/layouts", auth(), wrap(async (req, res) => {
   res.json(rows);
 }));
 
+/* ============ Perimetro della rete ============
+ * L'amministratore può caricare un elenco di codici: da quel momento ogni caricamento elabora e salva solo quei codici,
+ * qualunque cosa contengano i file. Senza elenco si lavora su tutto il magazzino. Vale dai caricamenti successivi. */
+const pcode = v => String(v === null || v === undefined ? "" : v).trim().toUpperCase().replace(/\s+/g, "").slice(0, 40);   // come nel motore
+const PERIM_MAX = 200000;
+async function perimInfo() {
+  const [{ rows: n }, { rows: m }] = await Promise.all([pool.query("SELECT count(*)::int AS n FROM perimeter"),
+    pool.query("SELECT s.v, s.set_at, u.full_name, u.username FROM settings s LEFT JOIN users u ON u.id = s.set_by WHERE s.k = 'perimeter'")]);
+  const meta = m[0] || null;
+  return { active: n[0].n > 0, n: n[0].n, file: meta && meta.v.file ? meta.v.file : "", set_at: meta ? meta.set_at : null, set_by: meta ? meta.full_name || meta.username : null };
+}
+app.get("/api/perimeter", auth(), wrap(async (req, res) => res.json(await perimInfo())));
+app.get("/api/perimeter/codes", auth(), wrap(async (req, res) => {
+  const { rows } = await pool.query("SELECT code FROM perimeter ORDER BY code");
+  res.json({ codes: rows.map(r => r.code) });
+}));
+app.put("/api/perimeter", big, auth(true), wrap(async (req, res) => {
+  const list = Array.isArray(req.body.codes) ? req.body.codes : null;
+  if (!list) return fail(res, 400, "Formato non valido.");
+  const codes = [...new Set(list.map(pcode).filter(Boolean))];
+  if (!codes.length) return fail(res, 400, "L'elenco non contiene codici.");
+  if (codes.length > PERIM_MAX) return fail(res, 400, `Troppi codici (massimo ${PERIM_MAX.toLocaleString("it-IT")}).`);
+  await tx(async c => {
+    await c.query("DELETE FROM perimeter");
+    for (let i = 0; i < codes.length; i += 20000) await c.query("INSERT INTO perimeter (code) SELECT unnest($1::text[]) ON CONFLICT DO NOTHING", [codes.slice(i, i + 20000)]);
+    await c.query(`INSERT INTO settings (k, v, set_by, set_at) VALUES ('perimeter', $1, $2, now())
+      ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, set_by = EXCLUDED.set_by, set_at = now()`, [JSON.stringify({ file: String(req.body.file || "").slice(0, 200) }), req.user.id]);
+  });
+  res.json(await perimInfo());
+}));
+app.delete("/api/perimeter", auth(true), wrap(async (req, res) => {
+  await tx(async c => { await c.query("DELETE FROM perimeter"); await c.query("DELETE FROM settings WHERE k = 'perimeter'"); });
+  res.json(await perimInfo());
+}));
+
 app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   const u = req.user;
   const dealerId = u.role === "admin" ? +req.body.dealer_id : u.dealer_id;
@@ -315,18 +350,32 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   // data del caricamento: il giorno di oggi in Italia
   const week = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
   // Giacenze: senza file giacenze (rowsB assente) valgono quelle riportate dalle liste; con il file valgono quelle del file.
+  // Perimetro della rete: dei file si tengono solo i codici dell'elenco dell'amministratore.
+  let rowsA = req.body.rowsA, rowsB = req.body.rowsB == null ? null : req.body.rowsB, perimN = null, nOut = 0;
+  if (!Array.isArray(rowsA) || (rowsB !== null && !Array.isArray(rowsB))) return fail(res, 400, "Formato dati non valido.");
+  const { rows: pr } = await pool.query("SELECT code FROM perimeter");
+  if (pr.length) {
+    const P = new Set(pr.map(r => r.code)), inP = r => Array.isArray(r) && P.has(pcode(r[0]));
+    perimN = P.size;
+    const outA = new Set(), outB = new Set();
+    for (const r of rowsA) if (Array.isArray(r) && pcode(r[0]) && !P.has(pcode(r[0]))) outA.add(pcode(r[0]));
+    for (const r of rowsB || []) if (Array.isArray(r) && pcode(r[0]) && !P.has(pcode(r[0]))) outB.add(pcode(r[0]));
+    nOut = new Set([...outA, ...outB]).size;
+    rowsA = rowsA.filter(inP); if (rowsB) rowsB = rowsB.filter(inP);
+    if (!rowsA.length) return fail(res, 400, `Nessun codice delle liste movimentazione è nel perimetro della rete (${P.size.toLocaleString("it-IT")} codici scelti dall'amministratore).`);
+  }
   let result;
-  try { result = cross(req.body.rowsA, req.body.rowsB == null ? null : req.body.rowsB, { missing: req.body.missing === "lista" ? "lista" : "zero" }); } catch (e) { return fail(res, 400, e.message); }
+  try { result = cross(rowsA, rowsB, { missing: req.body.missing === "lista" ? "lista" : "zero" }); } catch (e) { return fail(res, 400, e.message); }
   if (!result.items.length) return fail(res, 400, "Nessun codice trovato nei file: controlla le colonne scelte.");
   // data delle giacenze delle liste: solo nella forma GG/MM/AAAA, e solo se le liste riportano le giacenze
   const ref = result.stock.n_list && typeof req.body.stock_ref === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(req.body.stock_ref) ? req.body.stock_ref : null;
 
   const out = await tx(async c => {
     const k = result.kpi;
-    const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico, stock_src, stock_ref)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+    const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico, stock_src, stock_ref, perim_n, n_out)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING id`,
       [dealerId, week, u.id, String(req.body.file_a || "").slice(0, 200), result.stock.src === "lista" ? "" : String(req.body.file_b || "").slice(0, 200),
-       k.n_codes, k.val_tot, k.n_sotto, k.pz_sotto, k.val_sotto, k.n_eccesso, k.val_eccesso, k.n_fermo, k.val_fermo, k.n_nogiac, k.n_nostorico, result.stock.src, ref]);
+       k.n_codes, k.val_tot, k.n_sotto, k.pz_sotto, k.val_sotto, k.n_eccesso, k.val_eccesso, k.n_fermo, k.val_fermo, k.n_nogiac, k.n_nostorico, result.stock.src, ref, perimN, perimN == null ? null : nOut]);
     const sid = s.rows[0].id;
     const CH = 5000;
     for (let i = 0; i < result.items.length; i += CH) {
@@ -336,7 +385,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
         SELECT $1, * FROM unnest(${COLS.map((_, j) => `$${j + 2}::${TYPES[j]}[]`).join(", ")})`, [sid, ...arrays]);
     }
     await relink(c, dealerId, week);
-    return { id: sid, week, dup: result.dup, kpi: k, stock_src: result.stock.src, stock_ref: ref };
+    return { id: sid, week, dup: result.dup, kpi: k, stock_src: result.stock.src, stock_ref: ref, perim_n: perimN, n_out: perimN == null ? null : nOut };
   });
   // I tracciati si ricordano a caricamento riuscito; se non si riesce a salvarli, il caricamento resta valido.
   try { await saveLayouts(dealerId, u.id, cleanLayouts(req.body.layouts)); } catch (e) { console.error("Tracciati non salvati:", e.message); }
@@ -347,7 +396,7 @@ app.get("/api/dealers/:id/snapshots", auth(), wrap(async (req, res) => {
   const id = +req.params.id;
   if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
   const { rows } = await pool.query(`SELECT s.id, s.week_date, s.uploaded_at, s.file_a, s.file_b, s.n_codes, s.val_tot, s.n_sotto, s.pz_sotto, s.val_sotto,
-      s.n_eccesso, s.val_eccesso, s.n_fermo, s.val_fermo, s.n_nogiac, s.n_nostorico, s.stock_src, s.stock_ref, u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
+      s.n_eccesso, s.val_eccesso, s.n_fermo, s.val_fermo, s.n_nogiac, s.n_nostorico, s.stock_src, s.stock_ref, s.perim_n, s.n_out, u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
     FROM snapshots s LEFT JOIN users u ON u.id = s.uploaded_by WHERE s.dealer_id = $1 ORDER BY s.week_date, s.uploaded_at, s.id`, [id]);
   res.json(rows);
 }));

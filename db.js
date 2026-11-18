@@ -114,6 +114,12 @@ CREATE INDEX IF NOT EXISTS snapshots_order_idx ON snapshots (dealer_id, week_dat
 ALTER TABLE items ADD COLUMN IF NOT EXISTS giac_lista float8;
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS stock_src text;
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS stock_ref text;
+-- Perimetro della rete: se l'amministratore carica un elenco di codici, i caricamenti elaborano solo quei codici.
+CREATE TABLE IF NOT EXISTS perimeter (code text PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS settings (k text PRIMARY KEY, v jsonb NOT NULL, set_by int REFERENCES users(id) ON DELETE SET NULL, set_at timestamptz NOT NULL DEFAULT now());
+-- per ogni caricamento: quanti codici c'erano nel perimetro (vuoto = nessun perimetro) e quanti codici dei file sono rimasti fuori
+ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS perim_n int;
+ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS n_out int;
 `;
 
 async function migrate() { await pool.query(SCHEMA); }
