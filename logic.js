@@ -168,9 +168,12 @@ function filterValues(items) {
  *     quello che resta non viene speso.
  *
  * free: come amount; l'importo che amount lascerebbe non speso sale oltre la SMax. Limite facoltativo: da 1 a 6 mesi di consumo
- *       sopra la SMax per codice. Oltre la SMax si sale in uno di due modi, a scelta di chi ordina:
- *   aumento lineare  (lin): la regola del passo 2, contando i mesi a partire dalla SMax (chi è già sopra la SMax parte in ritardo):
- *                           tutti i codici salgono degli stessi mesi di vendita regolare;
+ *       sopra la SMax per codice. Oltre la SMax si sale in uno di quattro modi, a scelta di chi ordina. I primi tre usano la regola
+ *       del passo 2, contando i mesi a partire dalla SMax (chi è già sopra la SMax parte in ritardo), ognuno con la sua misura:
+ *   aumento per consumo    (cons): misura = consumo; tutti i codici salgono degli stessi mesi di scorta;
+ *   aumento per regolarità (reg) : misura = consumo × regolarità ÷ 12; i mesi di scorta in più crescono con la regolarità;
+ *   aumento misto          (mix) : misura = consumo × (regolarità ÷ 12)^(peso), con il peso della regolarità scelto da chi ordina
+ *                                  (0% = per consumo, 100% = per regolarità);
  *   aumento dinamico (dyn): per ogni pezzo in più si stima la probabilità di venderlo entro un certo numero di mesi; si comprano
  *                           i pezzi dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la
  *                           certezza minima scelta. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi
@@ -186,6 +189,7 @@ const MONTHS = [1, 2, 3];
 const MAX_COVER = [0, 1, 2, 3, 4, 5, 6];   // mesi di consumo oltre la SMax; 0 = nessun limite
 // Aumento dinamico oltre la SMax: entro quanti mesi si vuole rivendere ogni pezzo in più, e con quale certezza minima (in percentuale).
 const SELL_MONTHS = [2, 3, 4, 6, 9, 12];
+const OVER_MODES = ["cons", "reg", "mix", "dyn"];
 const SELL_PROB = [50, 60, 70, 80, 90, 95, 99];
 
 /* Coda con priorità (heap binario): in cima la voce con il livello più basso. */
@@ -347,7 +351,9 @@ function scenario(items, p) {
   const k = 1 + R.consAdj / 100, roundFn = ROUND[R.round];
   const excluded = { flag: 0, noparams: 0, low: 0, minline: 0 };
   const forced = !!(list && p.listOverride);   // codici scelti a mano: valgono anche se segnati su richiesta
-  const dyn = mode === "free" && R.overMode === "dyn";   // oltre la SMax: aumento dinamico invece di quello lineare
+  const dyn = mode === "free" && R.overMode === "dyn";   // oltre la SMax: aumento dinamico
+  // oltre la SMax, negli altri tre modi: peso della regolarità nella misura (0 = solo consumo, 1 = regolarità per intero)
+  const w3 = R.overMode === "cons" ? 0 : R.overMode === "mix" ? R.overWeight / 100 : 1;
 
   const cands = [];
   for (const i of items) {
@@ -434,21 +440,24 @@ function scenario(items, p) {
       info.set(e.c.code, { p2: { qty: e.q, room: e.cap, capped: e.cap > 0 && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 } });
     }
     // Passo 3 (solo importo libero): quello che resta dopo aver portato tutti alla SMax sale oltre la SMax,
-    // con l'aumento lineare (stessi mesi di vendita regolare per tutti) oppure con l'aumento dinamico (prima i pezzi più sicuri da rivendere).
+    // per consumo, per regolarità, misto (stessi mesi della propria misura per tutti) oppure dinamico (prima i pezzi più sicuri da rivendere).
     if (mode === "free" && s2.full && left >= 0.01) {
       const E3 = cands.map(c => {
         const have = c.disp + got(c);
         const lim = Math.min(maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity, c.ceil);
-        return { c, vr: c.vr, cost: c.cost, off: Math.max(0, have - c.top), cap: Number.isFinite(lim) ? Math.max(0, lim - have) : Infinity, tcap: c.ceil < (maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity),
+        // misura del codice oltre la SMax; il dinamico usa la vendita regolare dello scenario
+        const vr = dyn ? c.vr : c.cons_eff * (hasReg ? Math.pow(c.regolarita / 12, w3) : 1);
+        return { c, vr, cost: c.cost, off: Math.max(0, have - c.top), cap: Number.isFinite(lim) ? Math.max(0, lim - have) : Infinity, tcap: c.ceil < (maxCover ? Math.floor(c.top + maxCover * c.cons_eff + 1e-9) : Infinity),
           have, mu: c.vr * R.sellMonths };
       });
       const s3 = dyn ? spreadRisk(E3, left, byReg, R.sellProb / 100) : spread(E3, left, byReg);
-      left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null, mode: dyn ? "dyn" : "lin" };
+      left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null, mode: dyn ? "dyn" : R.overMode };
+      if (!dyn) extra.w = Math.round(w3 * 100);
       if (dyn) Object.assign(extra, { months: R.sellMonths, prob: R.sellProb, stop: s3.stop });
       for (const e of E3) {
         if (e.q > 0) add(e.c, e.q, "Oltre la SMax");
         if (e.vr > 0) {
-          const p3 = { qty: e.q, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 };
+          const p3 = { qty: e.q, vr: e.vr, off: e.off, room: Number.isFinite(e.cap) ? e.cap : null, capped: Number.isFinite(e.cap) && e.q >= e.cap, short: e.short, tcap: e.tcap ? R.maxTotal : 0 };
           // aumento dinamico: da quale pezzo parte, quanti pezzi di vendita regolare nel periodo, le probabilità e perché si è fermato
           if (dyn) Object.assign(p3, { dyn: true, from: e.from, mu: e.mu, pFirst: e.pFirst, pLast: e.pLast, pNext: e.pNext, stop: e.stop });
           info.get(e.c.code).p3 = p3;
@@ -459,7 +468,7 @@ function scenario(items, p) {
       const c = info.get(l.code) || {}, first = l.steps.find(s => s.note === "A zero con fabbisogno" || s.note === "Sotto SMin");
       l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, w: R.regWeight, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
         level3: extra ? extra.level : null, p3: c.p3 || null, limit: extra ? extra.limit : null,
-        sell: extra && extra.mode === "dyn" ? { months: extra.months, prob: extra.prob } : null };
+        sell: extra && extra.mode === "dyn" ? { months: extra.months, prob: extra.prob } : null, over: extra ? extra.mode : null, w3: extra && extra.w != null ? extra.w : null };
     }
   }
 
@@ -500,14 +509,16 @@ function scenario(items, p) {
  * exclOnDemand escludi i codici segnati come su richiesta
  * minLine      escludi le righe di valore inferiore (euro, scenario a periodo)
  * maxCover     importo libero: al massimo SMax + maxCover mesi di consumo per codice (da 1 a 6; 0 = nessun limite)
- * overMode     importo libero, come salire oltre la SMax: "lin" aumento lineare (stessi mesi per tutti), "dyn" aumento dinamico
+ * overMode     importo libero, come salire oltre la SMax: "cons" per consumo, "reg" per regolarità (predefinito), "mix" misto, "dyn" dinamico
+ *              (il vecchio "lin" vale "reg")
+ * overWeight   aumento misto: peso della regolarità oltre la SMax, da 0 a 100% a passi di 10
  * sellMonths   aumento dinamico: entro quanti mesi si vuole rivendere ogni pezzo in più (2, 3, 4, 6, 9 o 12)
  * sellProb     aumento dinamico: certezza minima, in percentuale, che ogni pezzo in più sia venduto entro quei mesi (da 50 a 99)
  * regWeight    peso della regolarità nella vendita regolare, da 0 a 100%: vendita regolare = consumo × (regolarità ÷ 12)^(peso)
  * maxTotal     copertura massima totale in mesi di consumo, in tutti gli scenari (mai sotto la SMin; 0 = nessun tetto)
  * alertMonths  avviso se la copertura dopo l'ordine supera questi mesi */
 const RULES_DEFAULT = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0,
-  overMode: "lin", sellMonths: 6, sellProb: 80 };
+  overMode: "reg", overWeight: 50, sellMonths: 6, sellProb: 80 };
 const cleanCover = v => (MAX_COVER.includes(+v) ? +v : 0);
 // Copertura massima totale (mesi di consumo), in tutti gli scenari: nessun codice la supera, ma la SMin resta garantita. 0 = nessun tetto.
 const MAX_TOTAL = [0, 2, 3, 4, 5, 6, 9, 12];
@@ -522,7 +533,7 @@ function cleanRules(r) {
     minDemand: n(r.minDemand, 0, 1000, D.minDemand), exclOnDemand: b(r.exclOnDemand, D.exclOnDemand), minLine: n(r.minLine, 0, 1e6, D.minLine),
     maxCover: cleanCover(r.maxCover), alertMonths: n(r.alertMonths, 0.5, 24, D.alertMonths),
     regWeight: Math.round(n(r.regWeight, 0, 100, D.regWeight)), maxTotal: MAX_TOTAL.includes(+r.maxTotal) ? +r.maxTotal : D.maxTotal,
-    overMode: r.overMode === "dyn" ? "dyn" : "lin", sellMonths: SELL_MONTHS.includes(+r.sellMonths) ? +r.sellMonths : D.sellMonths,
+    overMode: OVER_MODES.includes(r.overMode) ? r.overMode : D.overMode, overWeight: Math.round(n(r.overWeight, 0, 100, D.overWeight) / 10) * 10, sellMonths: SELL_MONTHS.includes(+r.sellMonths) ? +r.sellMonths : D.sellMonths,
     sellProb: SELL_PROB.includes(+r.sellProb) ? +r.sellProb : D.sellProb
   };
 }

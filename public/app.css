@@ -384,3 +384,7 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .row > label.field{min-width:0;max-width:100%}
 label.field select{max-width:100%;text-overflow:ellipsis}
 #pextra > p{flex:1 1 100%;margin:0}
+/* Cursore del peso della regolarità (aumento misto) nel passo 1 e negli scenari */
+.wslider{min-width:240px;flex:1 1 260px}
+.wslider input[type=range]{width:100%;accent-color:var(--info)}
+.wslider .wsl{display:flex;justify-content:space-between;gap:8px}

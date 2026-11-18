@@ -227,29 +227,44 @@ const ORIZZ = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"]];
 // tetto per codice oltre la SMax: da 1 a 6 mesi e, dopo i 6 mesi, «nessun limite» (lo stesso ordine del cursore nelle regole)
 const COVER_MAX = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"], [4, "4 mesi"], [5, "5 mesi"], [6, "6 mesi"], [0, "nessun limite"]];
 const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
-/* Oltre la SMax, nell'importo libero, si sale in uno di due modi, a scelta di chi ordina:
- *  lin  aumento lineare: tutti i codici salgono degli stessi mesi di vendite regolari
+/* Oltre la SMax, nell'importo libero, si sale in uno di quattro modi, a scelta di chi ordina:
+ *  cons aumento per consumo: tutti i codici salgono degli stessi mesi di scorta
+ *  reg  aumento per regolarità: i mesi di scorta in più crescono con la regolarità (consumo × regolarità ÷ 12)
+ *  mix  aumento misto: come per regolarità, con il peso della regolarità scelto da chi ordina (0% = per consumo, 100% = per regolarità)
  *  dyn  aumento dinamico: per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti; si comprano i pezzi
  *       dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la certezza minima */
-const OVER = [["lin", "Aumento lineare", "tutti i codici salgono degli stessi mesi di vendite regolari"], ["dyn", "Aumento dinamico", "si comprano prima i pezzi più sicuri da rivendere"]];
+const OVER = [["cons", "Aumento per consumo", "tutti salgono degli stessi mesi di scorta"], ["reg", "Aumento per regolarità", "sale di più chi vende con continuità"],
+  ["mix", "Aumento misto", "scegli tu quanto pesa la regolarità"], ["dyn", "Aumento dinamico", "prima i pezzi più sicuri da rivendere"]];
+const OVER_W = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+const overMode = r => (OVER.some(o => o[0] === r.overMode) ? r.overMode : "reg");
 const SELL_MONTHS = [2, 3, 4, 6, 9, 12], SELL_PROB = [50, 60, 70, 80, 90, 95, 99];
-const overTxt = r => (r.overMode === "dyn" ? `aumento dinamico (rivendita entro ${mm(r.sellMonths)}, certezza minima ${fmtN(r.sellProb)}%)` : "aumento lineare");
-const overTitle = (mode, r) => (mode === "free" && r && r.overMode === "dyn" ? ` · aumento dinamico (${mm(r.sellMonths)}, ${fmtN(r.sellProb)}%)` : "");
+const overTxt = r => ({ dyn: `aumento dinamico (rivendita entro ${mm(r.sellMonths)}, certezza minima ${fmtN(r.sellProb)}%)`, cons: "aumento per consumo",
+  mix: `aumento misto (regolarità al ${fmtN(r.overWeight)}%)`, reg: "aumento per regolarità" })[overMode(r)];
+const overTitle = (mode, r) => (mode !== "free" || !r ? "" : " · " + ({ dyn: `aumento dinamico (${mm(r.sellMonths)}, ${fmtN(r.sellProb)}%)`, cons: "aumento per consumo",
+  mix: `aumento misto (regolarità ${fmtN(r.overWeight)}%)`, reg: "aumento per regolarità" })[overMode(r)]);
+const OVER_DESC = {
+  cons: "Per consumo: tutti i codici salgono degli stessi mesi di scorta; la regolarità non conta.",
+  reg: "Per regolarità: i mesi di scorta in più crescono con la regolarità. Un codice che vende un mese su due riceve la metà dei mesi di uno che vende tutti i mesi.",
+  mix: "Misto: scegli con il cursore «Peso regolarità oltre SMax» quanto conta la regolarità. A 0% è come per consumo, a 100% come per regolarità.",
+  dyn: "Dinamico: si comprano prima i pezzi più sicuri da rivendere. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente." };
 // probabilità scritta per difetto, così un pezzo sotto la soglia non sembra mai sopra
 const probTxt = v => (v >= 0.995 ? "oltre 99%" : v < 0.01 ? "meno di 1%" : Math.floor(v * 100 + 1e-9) + "%");
 const SCENARI = {
   cover: { t: "Acquisti per coprire un periodo", s: "Copro un periodo", d: "Ordino quanto serve per coprire 1, 2 o 3 mesi di vendite. Nessun codice resta sotto la SMin e nessuno supera la SMax." },
   amount: { t: "Acquisti per un importo", s: "Spendo un importo", d: "Spendo una cifra: prima riporto alla SMin i codici che sono sotto, poi divido il resto in proporzione alle vendite regolari. Nessun codice supera la SMax." },
-  free: { t: "Acquisti per un importo libero", s: "Importo libero", d: "Come l'importo, con la facoltà di andare oltre la SMax: quello che avanza dopo aver portato tutti i codici alla SMax viene speso comunque. Scegli tu come: aumento lineare (stessi mesi per tutti) o aumento dinamico (prima i pezzi più sicuri da rivendere)." }
+  free: { t: "Acquisti per un importo libero", s: "Importo libero", d: "Come l'importo, con la facoltà di andare oltre la SMax: quello che avanza dopo aver portato tutti i codici alla SMax viene speso comunque. Scegli tu come: per consumo, per regolarità, misto o dinamico." }
 };
 
 /* ============ Regole di riordino ============
  * Le sceglie ogni utente e restano salvate per lui. Valgono per tutte le proposte d'ordine.
  * SMin e SMax non sono regole: le rispetta lo scenario scelto (solo l'importo libero può superare la SMax). */
 const RULES_DEF = { months: 1, consAdj: 0, round: "nearest", minDemand: 0, exclOnDemand: true, minLine: 0, maxCover: 0, alertMonths: 3, regWeight: 100, maxTotal: 0,
-  overMode: "lin", sellMonths: 6, sellProb: 80 };
+  overMode: "reg", overWeight: 50, sellMonths: 6, sellProb: 80 };
 const ROUND_L = { nearest: "al pezzo più vicino", up: "per eccesso", down: "per difetto" };
-function rules() { return state.rules || (state.rules = { ...RULES_DEF, ...((state.me && state.me.user.rules) || {}) }); }
+function rules() {
+  if (!state.rules) { state.rules = { ...RULES_DEF, ...((state.me && state.me.user.rules) || {}) }; state.rules.overMode = overMode(state.rules); }   // il vecchio «lin» vale «per regolarità»
+  return state.rules;
+}
 let rulesTimer;
 function saveRules() {
   clearTimeout(rulesTimer);
@@ -284,6 +299,7 @@ const EQ = [
   { k: "regWeight", name: "Peso della regolarità", on: m => m !== "cover", vals: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100], fmt: v => fmtN(v) + "%", help: "Negli scenari a importo decide quanto conta la regolarità nel dividere i soldi. 100%: vendita regolare = consumo × regolarità ÷ 12, quindi i codici che vendono con continuità ricevono di più. 0%: conta solo il consumo. Esempio: consumo 3, regolarità 6 → a 100% vale 1,5 pezzi al mese, a 0% vale 3." },
   { k: "maxTotal", name: "Copertura massima", on: () => true, vals: [2, 3, 4, 5, 6, 9, 12, 0], fmt: v => v ? mm(v) : "nessuna", help: "Tetto in mesi di copertura per ogni codice dopo l'ordine, in tutti gli scenari, anche sotto la SMax. La SMin resta sempre garantita. Esempio: consumo 0,5 pezzi al mese, SMax 6, tetto 6 mesi → al massimo 3 pezzi disponibili." },
   { k: "maxCover", name: "Oltre la SMax", on: m => m === "free", vals: [1, 2, 3, 4, 5, 6, 0], fmt: v => v ? "+" + mm(v) : "nessun limite", help: "Solo nell'importo libero: quanti mesi di consumo ogni codice può avere sopra la SMax. Con un limite, l'importo che non trova posto resta non speso. Esempio: SMax 30, consumo 8, limite 1 mese → al massimo 38 pezzi." },
+  { k: "overWeight", name: "Peso regolarità oltre SMax", on: (m, r) => m === "free" && r.overMode === "mix", vals: OVER_W, fmt: v => fmtN(v) + "%", help: "Solo con l'aumento misto: quanto conta la regolarità nel dividere l'importo oltre la SMax. 0%: tutti salgono degli stessi mesi di scorta. 100%: i mesi in più crescono con la regolarità. Esempio a 50%: un codice che vende un mese su due riceve il 71% dei mesi di uno che vende tutti i mesi." },
   { k: "sellMonths", name: "Rivendere entro", on: (m, r) => m === "free" && r.overMode === "dyn", vals: SELL_MONTHS, fmt: mm, help: "Solo con l'aumento dinamico: entro quanti mesi vuoi rivendere i pezzi comprati oltre la SMax. Più mesi, più pezzi ammessi. Esempio: un codice che vende 2 pezzi al mese in 6 mesi ne vende in media 12, in 12 mesi 24." },
   { k: "sellProb", name: "Certezza minima", on: (m, r) => m === "free" && r.overMode === "dyn", vals: SELL_PROB, fmt: v => fmtN(v) + "%", help: "Solo con l'aumento dinamico: la probabilità minima che ogni pezzo in più sia venduto entro i mesi scelti. I pezzi sotto questa soglia non si comprano e quella parte di importo resta non spesa. Esempio: 80% vuol dire quattro volte su cinque." },
   { k: "minDemand", name: "Consumo minimo", on: () => true, vals: [0, .05, .1, .2, .3, .5, 1], fmt: v => v ? fmtN(v, 2) + " pz/mese" : "nessuno", help: "Esclude dalla proposta i codici che vendono meno di questo numero di pezzi al mese, compresi quelli sotto la SMin. Esempio: soglia 0,2 → un codice che vende 0,15 pezzi al mese non viene proposto." },
@@ -300,8 +316,8 @@ function renderRules(host, mode, onChange) {
       <div class="rctl"><span class="rl">SMin e SMax <button type="button" class="info" data-info="smm" aria-label="Che cos'è: SMin e SMax">i</button></span><p class="small muted">${free
         ? "La SMin è rispettata: i codici che sono sotto vengono riportati alla SMin per primi. La SMax può essere superata, ma solo dopo che tutti i codici ci sono arrivati."
         : "Sono rispettate: nessun codice resta sotto la SMin e nessuno supera la SMax. Per andare oltre la SMax serve lo scenario «" + SCENARI.free.t + "»."}</p></div>
-      ${free ? `<div class="rctl"><span class="rl">Come salire oltre la SMax <button type="button" class="info" data-info="over" aria-label="Che cos'è: aumento lineare o dinamico">i</button></span>${seg("overMode", r.overMode, OVER.map(([v, l]) => [v, l]))}
-        <p class="small muted">${r.overMode === "dyn" ? "Dinamico: si comprano prima i pezzi più sicuri da rivendere. Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente." : "Lineare: tutti i codici salgono degli stessi mesi di vendite regolari."}</p></div>` : ""}
+      ${free ? `<div class="rctl"><span class="rl">Come salire oltre la SMax <button type="button" class="info" data-info="over" aria-label="Che cos'è: i quattro modi oltre la SMax">i</button></span>${seg("overMode", overMode(r), OVER.map(([v, l]) => [v, l.replace("Aumento ", "")]))}
+        <p class="small muted">${OVER_DESC[overMode(r)]}</p></div>` : ""}
     </div>
     <div class="eq" role="group" aria-label="Equalizzatore delle regole">${EQ.filter(e => e.on(mode, r)).map(e => {
       const i = eqIndex(e, r[e.k]);
@@ -327,7 +343,7 @@ function renderRules(host, mode, onChange) {
   const INFO_EXTRA = {
     smm: ["SMin e SMax", "Sono le scorte minima e massima di ogni codice, come arrivano dalla lista movimentazione. Nessun codice resta sotto la SMin; la SMax si supera solo nello scenario «" + SCENARI.free.t + "». Esempio: SMin 8, SMax 30, disponibili 5 → mancano 3 pezzi per la SMin."],
     round: ["Arrotondamento", "Nello scenario a periodo il consumo del periodo diventa un numero intero di pezzi. Esempio: 6,4 pezzi → 6 al più vicino, 7 per eccesso, 6 per difetto. La SMin resta comunque il minimo."],
-    over: ["Aumento lineare o dinamico", "Vale solo oltre la SMax, nell'importo libero. Lineare: il resto dell'importo dà a tutti i codici gli stessi mesi di vendite regolari. Dinamico: per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi che scegli e compra i pezzi dal più sicuro al meno sicuro; si ferma quando finisce l'importo o quando la probabilità scende sotto la certezza minima. Esempio con 6 mesi e 80%: chi vende 100 pezzi al mese può arrivare a circa 5,8 mesi di scorta, chi ne vende 1 a 4 mesi, chi ne vende 0,2 non riceve niente."],
+    over: ["I quattro modi oltre la SMax", "Valgono solo oltre la SMax, nell'importo libero. Per consumo: tutti salgono degli stessi mesi di scorta. Per regolarità: i mesi in più crescono con la regolarità. Misto: decidi tu quanto pesa la regolarità, con il cursore. Dinamico: per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi che scegli e compra i pezzi dal più sicuro al meno sicuro; si ferma quando finisce l'importo o quando la probabilità scende sotto la certezza minima. Esempio con 6 mesi e 80%: chi vende 100 pezzi al mese può arrivare a circa 5,8 mesi di scorta, chi ne vende 1 a 4 mesi, chi ne vende 0,2 non riceve niente."],
     excl: ["Esclusioni", "I codici non tenuti a scorta (SMin e SMax a zero) non entrano mai negli ordini. Con la casella attiva sono esclusi anche i codici segnati come «su richiesta» con il link nella tabella della proposta."]
   };
   $$("[data-info]", host).forEach(b => b.onclick = ev => {
@@ -351,7 +367,8 @@ function whyHtml(l) {
   const ha = (d, g, o) => (d ? `Ne ha già <b>${fmtN(d)}</b>${o ? ` (${fmtN(g)} a magazzino + ${fmtN(o)} già ordinati)` : ""}` : "Non ne ha nessuno");
   const lv = v => fmtN(v, v < 10 ? 2 : 1);   // livello comune in mesi: due decimali quando è piccolo, così il prodotto torna
   // il prodotto è calcolato sui valori non arrotondati: si scrive con un decimale e «circa», così torna con i numeri mostrati
-  const interi = (x, q) => (q === 0 ? `circa ${n1(x)}: non arriva a un pezzo intero, quindi <b>nessun pezzo</b>` : `circa ${n1(x)} → <b>${pezzi(q)}</b>${Math.abs(x - q) > 0.05 ? " (si ordinano solo pezzi interi)" : ""}`);
+  const f1 = v => fmtN(Math.floor(v * 10 + 1e-9) / 10, 1);   // per difetto, così «circa 34,9 → 34» non diventa «circa 35,0 → 34»
+  const interi = (x, q) => (q === 0 ? `circa ${f1(x)}: non arriva a un pezzo intero, quindi <b>nessun pezzo</b>` : `circa ${f1(x)} → <b>${pezzi(q)}</b>${Math.abs(x - q) > 0.05 ? " (si ordinano solo pezzi interi)" : ""}`);
   if (c && c.kind === "cover") {
     li.push(`Vende in media <b>${n2(c.cons)}</b> pezzi al mese${c.adj ? `; con la correzione del ${pctTxt(c.adj)} si conta <b>${n2(c.ce)}</b>` : ""}.`);
     li.push(`Per coprire ${mesi(c.months)} servono ${n2(c.ce)} × ${fmtM(c.months)} = ${n2(c.raw)} pezzi, arrotondati ${ROUND_L[c.round]}: <b>${fmtN(c.rounded)}</b>.`);
@@ -387,8 +404,13 @@ function whyHtml(l) {
       } else if (p3.pNext != null) li.push(`${intro} Probabilità di vendere entro ${H} il pezzo numero ${fmtN(p3.from)}: ${probTxt(p3.pNext)}${p3.stop === "soglia" ? `, sotto la certezza minima (${fmtN(c.sell.prob)}%)` : ": l'importo è finito sui pezzi più sicuri"}. Oltre la SMax non riceve niente.`);
       else li.push("Oltre la SMax non riceve niente: è già al suo tetto.");
     } else if (p3 && c.level3 != null) {
-      const ideal = Math.max(0, c.level3 * c.vr - p3.off), whole = Math.min(p3.qty, Math.floor(ideal + 1e-9)), more = p3.qty - whole;
-      li.push(`Oltre la SMax: quando tutti i codici sono arrivati alla SMax, il resto dell'importo è stato diviso allo stesso modo, <b>${lv(c.level3)} mesi</b> di vendite a testa. Per questo codice ${lv(c.level3)} × ${n2(c.vr)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${p3.capped && ideal >= p3.qty + 1 ? `circa ${n1(ideal)} pezzi, ma c'è un tetto` : interi(ideal, whole)}${more > 0 && !p3.capped ? `, più <b>${pezzi(more)}</b> con l'ultimo avanzo dell'importo` : ""}.`);
+      // per consumo, per regolarità o misto: ognuno sale degli stessi mesi della propria misura
+      const v3 = p3.vr != null ? p3.vr : c.vr, om = c.over === "lin" || !c.over ? "reg" : c.over;
+      const misura = om === "cons" ? `mesi di consumo (aumento per consumo: tutti salgono degli stessi mesi di scorta)`
+        : om === "mix" ? `mesi di vendita pesata (aumento misto, regolarità al ${fmtN(c.w3)}%: conta come se vendesse ${n2(v3)} pezzi al mese)`
+        : `mesi di vendite regolari (aumento per regolarità)`;
+      const ideal = Math.max(0, c.level3 * v3 - p3.off), whole = Math.min(p3.qty, Math.floor(ideal + 1e-9)), more = p3.qty - whole;
+      li.push(`Oltre la SMax: quando tutti i codici sono arrivati alla SMax, il resto dell'importo ha dato a tutti <b>${lv(c.level3)}</b> ${misura}. Per questo codice ${lv(c.level3)} × ${n2(v3)}${p3.off ? ` − ${fmtN(p3.off)} che aveva già sopra la SMax` : ""} = ${p3.capped && ideal >= p3.qty + 1 ? `circa ${n1(ideal)} pezzi, ma c'è un tetto` : interi(ideal, whole)}${more > 0 && !p3.capped ? `, più <b>${pezzi(more)}</b> con l'ultimo avanzo dell'importo` : ""}.`);
       if (p3.capped) li.push(p3.tcap ? `Tetto di copertura di ${mesi(p3.tcap)}: non può avere più di ${n1(c.ce * p3.tcap)} pezzi in tutto, quindi oltre la SMax riceve al massimo <b>${pezzi(p3.qty)}</b>.`
         : `Tetto oltre la SMax: al massimo ${mesi(c.limit)} di vendite medie, cioè ${fmtM(c.limit)} × ${n2(c.ce)} = ${n1(c.limit * c.ce)} pezzi. Oltre la SMax riceve quindi al massimo <b>${pezzi(p3.qty)}</b>${ideal >= p3.qty + 1 ? "" : ", gli stessi del calcolo sopra"}.`);
     }
@@ -454,28 +476,33 @@ function wStep1(body, main) {
     W.result = null; wGo(main, 2);
   };
 }
-/* Campi per l'importo libero: come salire oltre la SMax (lineare o dinamico), i due parametri del dinamico e il tetto per codice.
+/* Campi per l'importo libero: come salire oltre la SMax (quattro modi), il peso del misto, i due parametri del dinamico e il tetto per codice.
  * «x» è il prefisso degli id: «p» nella procedura guidata, «o» nella pagina degli scenari. */
 function overFields(x) {
-  const r = rules(), dyn = r.overMode === "dyn", opt = (list, cur, f) => list.map(v => `<option value="${v}"${v === cur ? " selected" : ""}>${f(v)}</option>`).join("");
-  return `<label class="field" for="${x}om">Come salire oltre la SMax<select id="${x}om">${OVER.map(([v, l, d]) => `<option value="${v}"${v === r.overMode ? " selected" : ""}>${l}: ${d}</option>`).join("")}</select></label>
+  const r = rules(), om = overMode(r), dyn = om === "dyn", opt = (list, cur, f) => list.map(v => `<option value="${v}"${v === cur ? " selected" : ""}>${f(v)}</option>`).join("");
+  return `<label class="field" for="${x}om">Come salire oltre la SMax<select id="${x}om">${OVER.map(([v, l, d]) => `<option value="${v}"${v === om ? " selected" : ""}>${l}: ${d}</option>`).join("")}</select></label>
+    ${om === "mix" ? `<label class="field wslider" for="${x}ow">Peso della regolarità oltre la SMax: <b id="${x}owv">${fmtN(r.overWeight)}%</b>
+      <input type="range" id="${x}ow" min="0" max="${OVER_W.length - 1}" step="1" value="${OVER_W.indexOf(r.overWeight) >= 0 ? OVER_W.indexOf(r.overWeight) : 5}" aria-label="Peso della regolarità oltre la SMax">
+      <span class="small muted wsl"><span>0% solo consumo</span><span>100% regolarità per intero</span></span></label>` : ""}
     ${dyn ? `<label class="field" for="${x}sm">Rivendere i pezzi in più entro<select id="${x}sm">${opt(SELL_MONTHS, r.sellMonths, mm)}</select></label>
     <label class="field" for="${x}sp">Certezza minima<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
     <label class="field" for="${x}mc">Tetto per codice oltre la SMax (facoltativo)<select id="${x}mc">${COVER_MAX.map(([v, l]) => `<option value="${v}"${v === r.maxCover ? " selected" : ""}>${l}</option>`).join("")}</select></label>`;
 }
-const overHelp = r => (r.overMode === "dyn"
+const overHelp = r => (overMode(r) === "dyn"
   ? "Con l'aumento dinamico, per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi scelti e compra i pezzi dal più sicuro al meno sicuro: sale di più chi vende tanto e con regolarità. Si ferma quando finisce l'importo o quando la probabilità scende sotto la certezza minima: quello che resta non viene speso."
-  : "Con l'aumento lineare il resto dell'importo dà a tutti i codici gli stessi mesi di vendite regolari. Senza tetto l'importo viene speso tutto; con un tetto, quello che non trova posto resta non speso.");
+  : OVER_DESC[overMode(r)] + " Senza tetto l'importo viene speso tutto; con un tetto, quello che non trova posto resta non speso.");
 function overRead(x) {
   const r = rules(), g = id => $("#" + x + id);
-  if (g("om")) r.overMode = g("om").value === "dyn" ? "dyn" : "lin";
+  if (g("om")) r.overMode = overMode({ overMode: g("om").value });
+  if (g("ow")) r.overWeight = OVER_W[+g("ow").value] ?? 50;
   if (g("sm")) r.sellMonths = +g("sm").value;
   if (g("sp")) r.sellProb = +g("sp").value;
   if (g("mc")) r.maxCover = +g("mc").value;
 }
 // ogni scelta si salva subito; cambiando il modo i campi si ridisegnano (i due parametri servono solo al dinamico)
 function overBind(x, redraw) {
-  ["om", "sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); if (id === "om") redraw(); }; });
+  ["om", "ow", "sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); if (id === "om") redraw(); }; });
+  const w = $("#" + x + "ow"); if (w) w.oninput = () => { $("#" + x + "owv").textContent = fmtN(OVER_W[+w.value]) + "%"; };
 }
 function wStep2(body, main) {
   const U = state.upload, last = state.snapshots[state.snapshots.length - 1];
@@ -998,7 +1025,9 @@ function renderProposal(sel = "#ores", recalc) {
       S.prop.n ? `<b>${fmtE(S.prop.value)}</b> sono divisi in proporzione alle vendite regolari su ${fmtN(S.prop.n)} codici${S.prop.full ? ", tutti arrivati alla SMax" : `: ${fmtN(S.prop.level, 2)} mesi di vendita regolare per ciascuno, salvo chi si è fermato prima alla SMax`}` : "",
       S.extra && S.extra.n ? (S.extra.mode === "dyn"
         ? `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${fmtN(S.extra.n)} codici con l'aumento dinamico: probabilità di vendita entro ${mm(S.extra.months)} di ogni pezzo comprato, almeno ${probTxt(S.extra.level).replace("oltre ", "")}`
-        : `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${fmtN(S.extra.n)} codici: altri ${fmtN(S.extra.level, 2)} mesi di vendita regolare per ciascuno`) : ""].filter(Boolean);
+        : `<b>${fmtE(S.extra.value)}</b> vanno oltre la SMax su ${fmtN(S.extra.n)} codici con l'${overTxt({ overMode: S.extra.mode === "lin" ? "reg" : S.extra.mode, overWeight: S.extra.w })}: ${S.extra.mode === "cons"
+          ? `tutti salgono di altri ${fmtN(S.extra.level, 2)} mesi di scorta`
+          : `altri ${fmtN(S.extra.level, 2)} mesi ${S.extra.mode === "mix" ? "di vendita pesata" : "di vendita regolare"} per ciascuno`}, salvo chi si è fermato prima a un tetto`) : ""].filter(Boolean);
     if (S.smin.short) notes.push(`<div class="msg err">L'importo non basta per riportare alla SMin tutti i codici che sono sotto: ne restano fuori <b>${fmtN(S.smin.short)}</b>. Passano prima i codici con la regolarità di vendita più alta e, a parità, con il consumo più alto.</div>`);
     notes.push(`<div class="msg">${parts.length ? "Come è composto l'ordine: " + parts.join("; ") + "." : "Nessun acquisto possibile con l'importo e i codici scelti."}</div>`);
     if (S.left >= 1 && S.prop.full && S.mode === "amount") notes.push(`<div class="msg err">Tutti i codici sono arrivati alla SMax: restano <b>${fmtE(S.left)}</b> non spesi. Per spenderli serve lo scenario «${esc(SCENARI.free.t)}», che può superare la SMax.</div>`);
@@ -1477,17 +1506,19 @@ async function viewRegole(main) {
     <li><b>SMax</b>: chi arriva alla SMax si ferma e l'importo prosegue sugli altri. Se tutti arrivano alla SMax, il resto non si spende e la piattaforma dice quanto.${ex("con 1.000 € il filtro si ferma a 22 pezzi (arriva a 30, la sua SMax) invece di 24, le pastiglie a 7 (arrivano a 10) invece di 8. Con 1.500 € tutti arrivano alla SMax spendendo 1.256 €: i 244 € restanti non vengono spesi.")}</li></ol></section>
   <section class="panel rules"><h3>C. ${esc(SCENARI.free.t)} (anche oltre la SMax)</h3><ul>
     <li>Come B; quello che B lascerebbe non speso va oltre la SMax. La SMax viene superata solo dopo che tutti i codici ci sono arrivati.${ex("con 1.000 € in importo libero il risultato è uguale a B: non tutti sono arrivati alla SMax, quindi nessuno la supera.")}</li>
-    <li>Oltre la SMax si sale in uno di due modi, a scelta di chi ordina: <b>aumento lineare</b> oppure <b>aumento dinamico</b>. Si sceglie nel primo passo di «Nuovo ordine», in «Scenari d'ordine» e nel pannello «Regole di riordino».</li>
-    <li><b>Aumento lineare</b>: il resto dell'importo dà a ogni codice gli stessi mesi in più di vendita regolare.${ex("con 2.146 €: 1.256 € portano tutti alla SMax, come in B; gli 890 € restanti comprano 4 mesi di vendita regolare oltre la SMax. Filtro olio +24 (4 × 6), candela +20 (4 × 5), pastiglie +8 (4 × 2), batteria +1 (4 × 0,25).")}</li>
+    <li>Oltre la SMax si sale in uno di quattro modi, a scelta di chi ordina: <b>per consumo</b>, <b>per regolarità</b> (quello di base), <b>misto</b> oppure <b>dinamico</b>. Si sceglie nel primo passo di «Nuovo ordine», in «Scenari d'ordine» e nel pannello «Regole di riordino». I primi tre spendono tutto l'importo, salvo i tetti; il dinamico si ferma quando i pezzi diventano troppo incerti.</li>
+    <li><b>Aumento per consumo</b>: tutti i codici salgono degli stessi mesi di scorta; la regolarità non conta.${ex("con 2.146 €: 1.256 € portano tutti alla SMax; i restanti danno a tutti circa 2,3 mesi di consumo in più. Filtro olio +19, candela +23, pastiglie +6, batteria +2.")}</li>
+    <li><b>Aumento per regolarità</b>: il resto dell'importo dà a ogni codice gli stessi mesi in più di vendita regolare (consumo × regolarità ÷ 12). Tradotto in scorta: chi vende con più continuità sale di più.${ex("con 2.146 €: gli 890 € oltre la SMax comprano 4 mesi di vendita regolare. Filtro olio +24 (4 × 6), candela +20 (4 × 5), pastiglie +8 (4 × 2), batteria +1 (4 × 0,25): la batteria, che vende un mese su quattro, sale molto meno.")}</li>
+    <li><b>Aumento misto</b>: come per regolarità, ma decidi tu quanto pesa la regolarità con il cursore «Peso regolarità oltre SMax», da 0% (come per consumo) a 100% (come per regolarità).${ex("con 2.146 € e peso 50%: filtro olio +23, candela +24, pastiglie +7, batteria +1. A metà strada tra i due modi: la batteria conta come se vendesse 0,5 pezzi al mese invece di 0,25 (per regolarità) o 1 (per consumo).")}</li>
     <li><b>Aumento dinamico</b>: per ogni pezzo in più la piattaforma stima la probabilità di venderlo entro i mesi che scegli (da 2 a 12). Compra i pezzi dal più sicuro al meno sicuro e si ferma quando finisce l'importo o quando la probabilità scende sotto la certezza minima che scegli (dal 50% al 99%). Sale di più chi vende tanto e con regolarità; chi alla SMax ha già molti mesi di scorta sale poco o niente. Quello che resta sotto la certezza minima non viene speso.${ex("con 2.146 €, rivendita entro 12 mesi e certezza minima 80%: filtro olio +35 (il pezzo numero 65 ha l'81% di probabilità di essere venduto entro 12 mesi; il numero 66 il 77%, quindi lì si ferma), candela +13, pastiglie +9, batteria niente (il suo quarto pezzo ha il 35%). Spesa 2.122 €; restano 24 €: l'unico pezzo ancora sopra la certezza minima sarebbe un'altra pastiglia, che costa 40 €.")}
       ${ex("stessi 2.146 € ma rivendita entro 6 mesi: alla SMax il filtro ha già 5 mesi di vendite regolari (30 ÷ 6), la candela 8, le pastiglie 5, la batteria 12. Si compra solo 1 filtro olio (il pezzo numero 31 ha l'81%; il numero 32 il 76%). Restano 880 € non spesi: è il segnale che, per rivendere tutto entro 6 mesi, oltre la SMax non c'è quasi posto.")}</li>
     <li><b>Come si stima la probabilità</b>: nel periodo scelto il codice vende in media vendita regolare × mesi; le vendite si contano come eventi indipendenti (distribuzione di Poisson). Il pezzo numero N viene venduto se nel periodo si vendono almeno N pezzi. Chi vende tanto è prevedibile e può salire molto; chi vende poco no. È una stima statistica, non una garanzia.${ex("pastiglie: vendita regolare 2 al mese, quindi in 12 mesi 24 pezzi in media. Probabilità di venderne almeno 19: 87%; almeno 24: 52%. Con 6 mesi e certezza 80%: un codice che vende 100 pezzi al mese può arrivare a 5,8 mesi di scorta, uno che ne vende 1 a 4 mesi, uno che ne vende 0,2 non riceve niente.")}</li>
-    <li>Tetto facoltativo, per entrambi i modi: da 1 a 6 mesi di consumo medio sopra la SMax per codice. Con il tetto, quello che non trova posto resta non speso.${ex("aumento lineare con 3.000 € e tetto 1 mese: filtro al massimo 30 + 8 = 38, candela 40 + 10 = 50, pastiglie 10 + 3 = 13, batteria 3 + 1 = 4. Si spendono 1.666 €; 1.334 € restano non spesi.")}</li></ul></section>
+    <li>Tetto facoltativo, per tutti e quattro i modi: da 1 a 6 mesi di consumo medio sopra la SMax per codice, oppure nessun limite. Con il tetto, quello che non trova posto resta non speso.${ex("aumento per regolarità con 3.000 € e tetto 1 mese: filtro al massimo 30 + 8 = 38, candela 40 + 10 = 50, pastiglie 10 + 3 = 13, batteria 3 + 1 = 4. Si spendono 1.666 €; 1.334 € restano non spesi.")}</li></ul></section>
   <section class="panel rules"><h3>Pezzi interi</h3><ul>
     <li>I pezzi si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Se l'avanzo non basta per un pezzo di un codice si passa agli altri: per questo negli scenari a importo possono restare pochi euro.${ex("con 1.000 €, arrivati a quasi 4 mesi restano 32 €. Toccherebbe alla batteria (1 pezzo a 4 mesi), ma costa 90 €: si passa oltre, e le candele ricevono il 20° e il 21° pezzo (24 €). Avanzano 8 €; spesa 992 €.")}</li></ul></section>
   <section class="panel rules"><h3>Regole che ogni utente può cambiare</h3><ul>
     <li><b>Peso della regolarità</b>, da 0% a 100%, negli scenari a importo: quanto conta la regolarità nel dividere l'importo. A 100% la vendita regolare è consumo × regolarità ÷ 12; a 0% conta solo il consumo; in mezzo la regolarità pesa meno.${ex("con 1.000 € e peso 100% le candele ricevono 21 pezzi e la batteria 1; con peso 0% i codici poco regolari guadagnano spazio: candele 19, batteria 3 (arriva alla SMax), filtro olio 18 invece di 25.")}</li>
-    <li><b>Oltre la SMax</b>, nell'importo libero: aumento lineare o dinamico; con il dinamico, i mesi entro cui rivendere i pezzi in più e la certezza minima.${ex("con «entro 12 mesi, certezza 80%» il filtro olio riceve 35 pezzi oltre la SMax; con «certezza 95%» ne riceve 28, perché si ferma prima, e 274 € restano non spesi.")}</li>
+    <li><b>Oltre la SMax</b>, nell'importo libero: aumento per consumo, per regolarità, misto o dinamico; con il misto, il peso della regolarità; con il dinamico, i mesi entro cui rivendere i pezzi in più e la certezza minima.${ex("con «entro 12 mesi, certezza 80%» il filtro olio riceve 35 pezzi oltre la SMax; con «certezza 95%» ne riceve 28, perché si ferma prima, e 274 € restano non spesi.")}</li>
     <li><b>Copertura massima</b>, da 2 a 12 mesi o nessuna, in tutti gli scenari: dopo l'ordine nessun codice supera quella copertura, nemmeno sotto la SMax; la SMin resta sempre garantita.${ex("periodo di 3 mesi con copertura massima 2 mesi: filtro olio 16 pezzi (2 × 8) invece di 24, candela 20 invece di 30. In uno scenario a importo, quello che non trova posto resta non speso: con 1.500 € si spendono 626 €.")}</li>
     <li><b>Correzione del consumo medio</b>, da −50% a +50%, per stagionalità o andamento.${ex("con −20% il filtro olio conta 8 × 0,8 = 6,4 pezzi al mese invece di 8.")}</li>
     <li><b>Arrotondamento</b> nello scenario a periodo: al pezzo più vicino, per eccesso o per difetto.${ex("6,4 pezzi diventano 6 (più vicino), 7 (per eccesso) o 6 (per difetto). La SMin resta il pavimento: il filtro arriva comunque a 8.")}</li>
