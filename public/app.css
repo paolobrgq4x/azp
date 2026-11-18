@@ -349,3 +349,5 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .info.sm{width:15px;height:15px;font-size:10px;cursor:default}
 .info[aria-pressed=true]{background:var(--info);color:var(--surface)}
 .eqh.on{color:var(--ink);background:var(--info-soft);border-left:3px solid var(--info);padding:8px 10px;border-radius:0 8px 8px 0}
+#cprog .chips{margin:10px 0 4px}
+#cprog .whybox{position:static;width:auto;max-width:760px;margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}

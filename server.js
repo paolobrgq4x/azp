@@ -457,9 +457,9 @@ app.get("/api/history", auth(), wrap(async (req, res) => {
   if (!canSee(req.user, dealerId)) return fail(res, 403, "Accesso non consentito.");
   if (!c) return res.json({ rows: [], weeks: [] });
   const [h, w] = await Promise.all([
-    pool.query(`SELECT s.week_date, s.uploaded_at, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak
+    pool.query(`SELECT s.id AS snap_id, s.week_date, s.uploaded_at, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak, i.cons_mese, i.regolarita
       FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = $1 AND i.code = $2 ORDER BY s.week_date, s.uploaded_at, s.id`, [dealerId, c]),
-    pool.query(`SELECT week_date FROM snapshots WHERE dealer_id = $1 ORDER BY ${SNAP_ORDER}`, [dealerId])
+    pool.query(`SELECT id, week_date FROM snapshots WHERE dealer_id = $1 ORDER BY ${SNAP_ORDER}`, [dealerId])
   ]);
   let suggest = [];
   if (!h.rowCount) {
@@ -468,7 +468,7 @@ app.get("/api/history", auth(), wrap(async (req, res) => {
     suggest = r.rows.map(x => x.code);
   }
   const fr = await pool.query("SELECT note, set_at, u.full_name, u.username FROM code_flags f LEFT JOIN users u ON u.id = f.set_by WHERE f.dealer_id = $1 AND f.code = $2", [dealerId, c]);
-  res.json({ code: c, rows: h.rows, weeks: w.rows.map(x => x.week_date), suggest, flag: fr.rows[0] || null });
+  res.json({ code: c, rows: h.rows, weeks: w.rows.map(x => x.week_date), latest: w.rowCount ? w.rows[w.rowCount - 1].id : null, suggest, flag: fr.rows[0] || null });
 }));
 
 app.get("/api/overview", auth(true), wrap(async (req, res) => {

@@ -1234,11 +1234,43 @@ async function viewKpi(main) {
 /* ============ Scheda codice ============ */
 async function viewCodice(main) {
   if (needDealer(main)) return;
-  main.innerHTML = `<div class="head"><div><h1>Scheda codice</h1><p class="sub">Evoluzione di un codice, caricamento dopo caricamento, in ${esc(dealerName(state.dealerId))}.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Scheda codice</h1><p class="sub">Situazione di un codice in ${esc(dealerName(state.dealerId))}: quanti pezzi programmare per 15, 30, 45, 60, 75 o 90 giorni e come è cambiato, caricamento dopo caricamento.</p></div></div>
   <form class="panel" id="cf"><div class="row"><label class="field" for="cq">Codice particolare<input type="text" id="cq" value="${esc(state.codice)}" autocapitalize="characters" placeholder="Es. 12385671"></label><button class="btn primary" type="submit">Mostra</button></div></form>
   <div id="cres"></div>`;
   $("#cf").onsubmit = e => { e.preventDefault(); state.codice = $("#cq").value.trim().toUpperCase(); showCode(); };
   if (state.codice) await showCode(); else $("#cq").focus();
+}
+/* Quanti pezzi programmare per un codice: consumo del periodo scelto, con le regole dell'utente (correzione del consumo e arrotondamento).
+   Un mese vale 30 giorni. Si mostra sia il risultato entro SMin e SMax sia quello del solo consumo. */
+const GIORNI = [15, 30, 45, 60, 75, 90];
+const ROUNDF = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
+function renderProgram(host, d, last) {
+  if (last.snap_id !== d.latest) { host.innerHTML = `<h2>Quanti pezzi programmare</h2><p class="muted">Il codice non compare nell'ultimo caricamento: carica dati aggiornati per programmarlo.</p>`; return; }
+  const r = rules(), days = state.progDays || 30, n2 = v => fmtN(v, 2);
+  const cons = +last.cons_mese || 0, ce = cons * (1 + r.consAdj / 100), disp = (+last.giac || 0) + (+last.ord || 0);
+  const raw = ce * days / 30, rounded = ROUNDF[r.round](raw);
+  const smin = +last.smin || 0, smax = Math.max(+last.smax || 0, smin), stock = smin > 0 || smax > 0;
+  const tStock = stock ? Math.min(Math.max(rounded, smin), smax) : rounded;
+  const qStock = Math.max(0, Math.ceil(tStock - disp - 1e-9)), qFree = Math.max(0, Math.ceil(rounded - disp - 1e-9));
+  const cov = q => (ce > 0 ? covTxt((disp + q) / ce) + " mesi" : "–");
+  const li = [`Consumo medio: <b>${n2(cons)}</b> pezzi al mese${r.consAdj ? `, corretto del ${pctTxt(r.consAdj)}: <b>${n2(ce)}</b>` : ""}.`,
+    `Consumo in ${days} giorni: ${n2(ce)} × ${days} ÷ 30 = ${n2(raw)} pezzi, arrotondati ${ROUND_L[r.round]}: <b>${fmtN(rounded)}</b>.`,
+    `Disponibile: ${fmtN(disp)} (giacenza ${fmtN(last.giac)} + ordini aperti ${fmtN(last.ord)}).`];
+  if (stock) {
+    if (smin > rounded) li.push(`La SMin è ${fmtN(smin)}: l'obiettivo sale a <b>${fmtN(tStock)}</b>.`);
+    else if (rounded > smax) li.push(`La SMax è ${fmtN(smax)}: l'obiettivo scende a <b>${fmtN(tStock)}</b>.`);
+    li.push(`Obiettivo ${fmtN(tStock)} − disponibile ${fmtN(disp)} = <b>${pezzi(qStock)}</b>.`);
+  } else li.push("Il codice non è tenuto a scorta (SMin e SMax a zero): conta solo il consumo.");
+  host.innerHTML = `<h2>Quanti pezzi programmare</h2>
+    <p class="small muted">Per coprire il consumo del periodo scelto, con le tue regole di riordino (correzione del consumo e arrotondamento). Un mese vale 30 giorni.</p>
+    <div class="chips seg" role="group" aria-label="Periodo da coprire">${GIORNI.map(g => `<button type="button" class="chip" data-gg="${g}" aria-pressed="${g === days}">${g} giorni</button>`).join("")}</div>
+    <section class="tiles">
+      ${stock ? `<div class="tile neutral"><span class="k">Da programmare entro SMin e SMax</span><span class="v">${pezzi(qStock)}</span><span class="s">${qStock ? `${fmtE2(qStock * last.cost)} · ` : ""}copertura dopo ${cov(qStock)}</span></div>` : ""}
+      <div class="tile neutral"><span class="k">${stock ? "Solo per il consumo, senza SMin e SMax" : "Da programmare per il consumo"}</span><span class="v">${pezzi(qFree)}</span><span class="s">${qFree ? `${fmtE2(qFree * last.cost)} · ` : ""}copertura dopo ${cov(qFree)}</span></div>
+    </section>
+    <div class="whybox"><b>Come è calcolato</b><ol>${li.map(x => `<li>${x}</li>`).join("")}</ol></div>
+    ${cons > 0 ? "" : `<p class="small muted">Nessun consumo registrato: per il consumo non serve programmare pezzi${stock ? "; resta solo l'eventuale reintegro della SMin" : ""}.</p>`}`;
+  $$("[data-gg]", host).forEach(b => b.onclick = () => { state.progDays = +b.dataset.gg; renderProgram(host, d, last); });
 }
 async function showCode() {
   const out = $("#cres"); out.innerHTML = `<p class="muted">Caricamento…</p>`;
@@ -1257,6 +1289,7 @@ async function showCode() {
     <div class="tile ${last.status === "sotto" ? "bad" : last.status === "eccesso" ? "warn" : last.status === "fermo" ? "idle" : "neutral"}"><span class="k">Stato attuale</span><span class="v">${STATI[last.status]}</span><span class="s">${last.status === "ok" ? "" : `da ${fmtN(last.streak)} ${last.streak === 1 ? "caricamento" : "caricamenti"} · `}dati del ${esc(snapLabel(last.week_date, last.uploaded_at))}</span></div>
     <div class="tile neutral"><span class="k">Giacenza / SMin / SMax</span><span class="v">${fmtN(last.giac)} <span class="small muted">/ ${fmtN(last.smin)} / ${fmtN(last.smax)}</span></span><span class="s">${fmtN(last.ord)} in ordine</span></div>
   </section>
+  <section class="panel" id="cprog"></section>
   <div class="chart" id="cc"></div>
   <section class="panel"><h2>Caricamento per caricamento</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Da ordinare / Eccedenza</th><th class="num">Valore giacenza</th></tr></thead><tbody>
   ${d.rows.slice().reverse().map(r => `<tr><td>${esc(snapLabel(r.week_date, r.uploaded_at))}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac">n.g.</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.delta > 0 ? "+" : ""}${r.delta ? fmtN(r.delta) : "–"}</td><td class="num">${fmtE2(r.val_giac)}</td></tr>`).join("")}
@@ -1268,6 +1301,7 @@ async function showCode() {
       toast(d.flag ? "Codice rimesso a scorta." : "Codice segnato come su richiesta."); showCode();
     } catch (x) { if (!x.silent) toast(x.message); }
   };
+  renderProgram($("#cprog"), d, last);
   const cs = getComputedStyle(document.documentElement);
   lineChart($("#cc"), d.rows.map(r => ({ y: r.giac, label: dShort(r.week_date), full: snapLabel(r.week_date, r.uploaded_at) })),
     { title: `Giacenza per caricamento (SMin ${fmtN(last.smin)} · SMax ${fmtN(last.smax)} nell'ultimo)`, color: cs.getPropertyValue("--accent").trim(), fmt: v => fmtN(v) + " pz", axis: v => fmtN(v) });
@@ -1322,6 +1356,8 @@ async function viewRegole(main) {
     <li><b>Esclusioni</b>: codici su richiesta e soglia minima di consumo medio.${ex("con soglia 0,5 pezzi al mese, un codice che ne vende 0,3 non viene proposto.")}</li>
     <li><b>Avviso</b> sulle righe che dopo l'ordine superano un certo numero di mesi di copertura (di base 3).${ex("con 1.000 € il filtro olio arriva a 30 pezzi = 3,75 mesi di consumo, le pastiglie a 3,3 mesi e le candele a 3,3: le tre righe hanno l'avviso «oltre 3 mesi». La batteria, a 1 mese, no.")}</li>
     <li>Si cambiano con l'<b>equalizzatore</b> del pannello «Regole di riordino», sopra ogni proposta in «Nuovo ordine» e in «Scenari d'ordine»: un cursore per regola, il valore scelto sopra il cursore. Ogni spostamento ricalcola la proposta e resta salvato per il tuo utente.</li></ul></section>
+  <section class="panel rules"><h3>Quanti pezzi programmare per un codice</h3><ul>
+    <li>Nella «Scheda codice» scegli il periodo: 15, 30, 45, 60, 75 o 90 giorni (un mese vale 30 giorni). La piattaforma calcola consumo del periodo − disponibile, con la tua correzione del consumo e il tuo arrotondamento, e mostra due risultati: entro SMin e SMax, e solo per il consumo.${ex("filtro olio, 45 giorni: 8 × 45 ÷ 30 = 12 pezzi − 5 disponibili = 7 da programmare. A 90 giorni: 24 − 5 = 19. Con una SMax di 20, entro SMin e SMax sarebbero 15.")}</li></ul></section>
   <section class="panel"><h3>Le tue regole adesso</h3><ul class="small">${modes.map(m => `<li><b>${esc(SCENARI[m].t)}</b>: ${esc(rulesText(r, m))}</li>`).join("")}</ul></section>
   <section class="panel rules"><h3>Dopo il calcolo</h3><ul>
     <li>Ogni quantità della proposta si apre per vedere il conto passo passo. Ogni riga si accetta o si rifiuta; l'ordine confermato si scarica in Excel o PDF.${ex("nella proposta da 1.000 € tocca il 21 delle candele: vedi disponibile, vendita regolare, mesi comprati e il pezzo in più arrivato con l'avanzo.")}</li></ul></section>`;
