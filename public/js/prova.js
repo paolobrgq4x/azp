@@ -169,7 +169,7 @@ function stockSheet(B, fmt) {
 }
 async function viewProva(main) {
   const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtA: "export", fmtB: "std", listStock: true, seed: Math.floor(Math.random() * 1e6) });
-  main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid2">
       <label class="field" for="gna">Liste movimentazione: numero di codici<input type="text" id="gna" inputmode="numeric" value="${esc(fmtN(P.nA))}"></label>
