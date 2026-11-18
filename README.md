@@ -102,6 +102,18 @@ In «Dati di prova» il file giacenze si può generare in quattro tracciati dive
 - `logic.js` — regole di incrocio, scenari d'ordine e indicatori
 - `db.js` — connessione PostgreSQL e schema (creato all'avvio)
 - `public/` — interfaccia (HTML, CSS, JavaScript senza framework)
+  - `index.html`, `app.css` — pagina e stile
+  - `app.js` — avvio della pagina
+  - `js/base.js` — funzioni comuni, accesso, menu e navigazione
+  - `js/regole.js` — scenari, modi oltre la SMax, spiegazioni dei calcoli
+  - `js/nuovo.js` — percorso guidato del nuovo caricamento
+  - `js/andamento.js` — rete, andamento e analisi
+  - `js/ordine.js` — scenari d'ordine, conferma ed esportazioni Excel/PDF
+  - `js/indicatori.js` — indicatori e scheda codice
+  - `js/pagina-regole.js` — pagina delle regole
+  - `js/carica.js` — lettura dei file, riconoscimento colonne, mesi, giacenze, perimetro
+  - `js/prova.js` — generatore di dati di prova
+  - `js/admin.js` — amministrazione
 
 ## Variabili d'ambiente
 
