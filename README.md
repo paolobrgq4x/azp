@@ -33,7 +33,7 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 | Acquisti per un importo | 1. I codici sotto la SMin tornano alla SMin (se l'importo non basta: prima la regolarità più alta, poi il consumo più alto). 2. Il resto compra a tutti lo stesso numero di mesi di vendita regolare. 3. Nessun codice supera la SMax; se tutti ci arrivano, il resto non viene speso |
 | Acquisti per un importo libero | Come sopra, ma quello che resterebbe non speso sale oltre la SMax, con uno dei quattro modi descritti sotto. La SMax viene superata solo dopo che tutti i codici ci sono arrivati. Tetto per codice facoltativo |
 
-I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
+I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino: sopra la proposta solo la stagionalità (correzione del consumo medio, da −50% a +50%) e, nello scenario a periodo, l'arrotondamento; periodo, importo, modo oltre la SMax e consumo minimo si scelgono nei passi di «Nuovo ordine», l'avviso di copertura sopra la tabella di conferma. Peso della regolarità, copertura massima, valore minimo di riga ed esclusione dei codici su richiesta restano ai valori iniziali; di ogni quantità si può aprire il conto passo per passo.
 
 ### Oltre la SMax: quattro modi
 
@@ -44,7 +44,7 @@ Nell'importo libero chi ordina sceglie come salire oltre la SMax (regola `overMo
 - **Aumento misto** (`mix`) — misura = consumo × (regolarità ÷ 12)^peso, con il peso della regolarità scelto da chi ordina (`overWeight`, da 0 a 100% a passi di 10), scelto con una leva: a sinistra il consumo (0% = per consumo), a destra la regolarità (100% = per regolarità).
 - **Aumento dinamico** (`dyn`) — per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti (`sellMonths`: 2, 3, 4, 6, 9 o 12); si comprano i pezzi dal più sicuro al meno sicuro, finché dura l'importo e finché la probabilità resta sopra la certezza minima (`sellProb`: dal 50 al 99%). Quello che resta sotto la certezza minima non viene speso, e la pagina lo dice.
 
-Il peso della regolarità generale (`regWeight`) vale fino alla SMax e per il dinamico; oltre la SMax i primi tre modi usano il proprio peso.
+Fino alla SMax e nel dinamico la regolarità pesa sempre al 100% (`regWeight` resta al valore iniziale); oltre la SMax i primi tre modi usano il proprio peso.
 
 La probabilità: nel periodo il codice vende in media vendita regolare × mesi, e le vendite si contano come eventi indipendenti (distribuzione di Poisson). Il pezzo numero N è venduto se nel periodo si vendono almeno N pezzi. Il calcolo lavora sul logaritmo del rischio, quindi è esatto anche per i codici che vendono centinaia di pezzi al mese. È una stima statistica, non una garanzia. I tetti (mesi oltre la SMax, copertura massima) valgono per entrambi i modi; di ogni riga si può aprire il conto con le probabilità del primo e dell'ultimo pezzo comprato.
 

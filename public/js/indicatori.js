@@ -18,7 +18,7 @@ async function viewCodice(main) {
   $("#cf").onsubmit = e => { e.preventDefault(); state.codice = $("#cq").value.trim().toUpperCase(); showCode(); };
   if (state.codice) await showCode(); else $("#cq").focus();
 }
-/* Quanti pezzi programmare per un codice: consumo del periodo scelto, con le regole dell'utente (correzione del consumo e arrotondamento).
+/* Quanti pezzi programmare per un codice: consumo del periodo scelto, con le regole dell'utente (stagionalità e arrotondamento).
    Un mese vale 30 giorni. Si mostra sia il risultato entro SMin e SMax sia quello del solo consumo. */
 const GIORNI = [15, 30, 45, 60, 75, 90];
 const ROUNDF = { nearest: x => Math.round(x), up: x => Math.ceil(x - 1e-9), down: x => Math.floor(x + 1e-9) };
@@ -40,7 +40,7 @@ function renderProgram(host, d, last) {
     li.push(`Obiettivo ${fmtN(tStock)} − disponibile ${fmtN(disp)} = <b>${pezzi(qStock)}</b>.`);
   } else li.push("Il codice non è tenuto a scorta (SMin e SMax a zero): conta solo il consumo.");
   host.innerHTML = `<h2>Quanti pezzi programmare</h2>
-    <p class="small muted">Per coprire il consumo del periodo scelto, con le tue regole di riordino (correzione del consumo e arrotondamento). Un mese vale 30 giorni.</p>
+    <p class="small muted">Per coprire il consumo del periodo scelto, con le tue regole di riordino (stagionalità e arrotondamento). Un mese vale 30 giorni.</p>
     <div class="chips seg" role="group" aria-label="Periodo da coprire">${GIORNI.map(g => `<button type="button" class="chip" data-gg="${g}" aria-pressed="${g === days}">${g} giorni</button>`).join("")}</div>
     <section class="tiles">
       ${stock ? `<div class="tile neutral"><span class="k">Da programmare entro SMin e SMax</span><span class="v">${pezzi(qStock)}</span><span class="s">${qStock ? `${fmtE2(qStock * last.cost)} · ` : ""}copertura dopo ${cov(qStock)}</span></div>` : ""}
