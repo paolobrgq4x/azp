@@ -167,6 +167,27 @@ const BULK = [
   ["noAlert", "No a tutte con avviso", "Rifiuta tutte le righe che hanno un avviso: copertura dopo l'ordine oltre la soglia scelta, nessuna domanda registrata, oppure quantità cambiata a mano oltre la SMax. Le altre righe non cambiano."],
   ["allSi", "Sì a tutte", "Accetta tutte le righe, anche quelle con un avviso e quelle che avevi già rifiutato. Le righe portate a zero pezzi restano rifiutate."]
 ];
+/* Ordinamento della tabella di conferma: si tocca un'intestazione. I numeri partono dal più grande, i testi dalla A.
+ * Di base: valore netto, dal più grande al più piccolo. Le celle vuote restano in fondo. */
+const DEC_SORT = ["rank", "code", "descr", "grp", "giac", "ord", "smin", "smax", "qty_sold", "last_sale", "cons_mese", "vgiac", "listino", "cost", "cover_before", "qty", "value", "cover_after", "alert", "dec"];
+const DEC_TEXT = new Set(["code", "descr", "grp", "dec"]);
+function decVal(r, k) {
+  const l = r.l;
+  if (k === "vgiac") return l.prev_giac == null ? null : l.giac - l.prev_giac;
+  if (k === "alert") return r.al.length;
+  if (k === "dec") return r.d || null;
+  if (k === "last_sale") return l.last_sale ? String(l.last_sale) : null;
+  const v = l[k]; return v === undefined || v === "" ? null : v;
+}
+function sortDec(rows, S) {
+  const txt = DEC_TEXT.has(S.k) || S.k === "last_sale";
+  return rows.slice().sort((a, b) => {
+    const x = decVal(a, S.k), y = decVal(b, S.k);
+    if (x == null || y == null) return x == null && y == null ? a.l.rank - b.l.rank : x == null ? 1 : -1;
+    const c = txt ? String(x).localeCompare(String(y), "it", { numeric: true }) : x - y;
+    return c * S.dir || a.l.rank - b.l.rank;
+  });
+}
 function renderDecision(host, R, recalc, sel = "#ores") {
   // le decisioni restano legate alla quantità: se le regole cambiano la quantità, la riga torna da decidere
   if (!R.dec) {
@@ -179,7 +200,8 @@ function renderDecision(host, R, recalc, sel = "#ores") {
   const saveDec = () => { R.decq = Object.fromEntries(R.lines.filter(l => R.dec[l.code]).map(l => [l.code, l.qty])); try { localStorage.setItem(decKey(R), JSON.stringify({ dec: R.dec, q: R.decq, e: R.qedit })); } catch (e) {} };
   R.decFilter = R.decFilter || "tutte"; R.decShow = R.decShow || 100;
   const th = rules().alertMonths;
-  const rows = R.lines.map(l0 => { const l = effLine(R, l0); return { l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }; });
+  R.decSort = R.decSort || { k: "value", dir: -1 };
+  const rows = sortDec(R.lines.map(l0 => { const l = effLine(R, l0); return { l, al: lineAlerts(l, th), d: R.dec[l.code] || "" }; }), R.decSort);
   const nEd = rows.filter(r => r.l.edited).length;
   const cnt = { tutte: rows.length, alert: rows.filter(r => r.al.length).length, todo: rows.filter(r => !r.d).length, si: rows.filter(r => r.d === "si").length, no: rows.filter(r => r.d === "no").length };
   const acc = rows.filter(r => r.d === "si"), accV = acc.reduce((t, r) => t + r.l.value, 0), accQ = acc.reduce((t, r) => t + r.l.qty, 0);
@@ -195,7 +217,7 @@ function renderDecision(host, R, recalc, sel = "#ores") {
     <div class="bar"><div class="chips" role="group" aria-label="Filtra le righe">${filters.map(([k, l]) => `<button type="button" class="chip" data-df="${k}" aria-pressed="${R.decFilter === k}">${l}<span class="n">${fmtN(cnt[k])}</span></button>`).join("")}</div>
       <div class="row">${BULK.map(([k, l, i]) => `<span class="bulk"><button class="btn sm" type="button" data-bulk="${k}">${l}</button><button class="ibtn" type="button" data-binfo="${k}" aria-label="Cosa fa «${l}»" aria-expanded="${R.binfo === k}" title="${esc(i)}">i</button></span>`).join("")}<button class="link" type="button" data-bulk="reset">Azzera</button></div></div>
     ${R.binfo ? `<p class="msg small" id="binfo">${esc((BULK.find(b => b[0] === R.binfo) || [])[2] || "")}</p>` : ""}
-    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Quantità</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th>Accetto</th></tr></thead><tbody>
+    ${vis.length ? `<div class="tablebox"><table class="dectab"><thead><tr><th class="num" title="Priorità con cui la proposta ha speso l'importo">#</th><th>Codice</th><th>Descrizione</th><th>Gruppo</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th>${MOVE_TH}<th class="num">Listino</th><th class="num">Netto</th><th class="num">Copertura attuale</th><th class="num" data-fzstart>Quantità</th><th class="num">Valore netto</th><th class="num">Copertura dopo</th><th>Avviso</th><th>Accetto</th></tr></thead><tbody>
       ${vis.slice(0, R.decShow).map(({ l, al, d }) => `<tr class="${d ? "d-" + d : ""}${al.length ? " has-al" : ""}"><td class="num muted">${l.rank}</td>
         <td class="code"><button type="button" data-c="${esc(l.code)}">${esc(l.code)}</button></td>
         <td class="desc" title="${esc(l.reasons.join(", "))}">${esc(l.descr)}</td>
@@ -212,6 +234,16 @@ function renderDecision(host, R, recalc, sel = "#ores") {
     </tbody></table></div>${vis.length > R.decShow ? `<div class="pager"><span>Mostrate ${fmtN(R.decShow)} righe su ${fmtN(vis.length)}.</span><button class="btn sm" type="button" id="dmore">Mostra altre 200</button></div>` : ""}` : `<p class="muted">Nessuna riga in questa vista.</p>`}
     <div class="decexp"><div class="small muted" id="dexpmsg">${cnt.todo ? `Mancano <b>${fmtN(cnt.todo)}</b> righe da decidere prima di scaricare l'ordine confermato.` : cnt.si ? `Ordine confermato pronto: ${fmtN(cnt.si)} righe, ${fmtE(accV)}.` : "Nessuna riga accettata."}</div>
       <div class="row"><button class="btn primary" type="button" id="dxls"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in Excel</button><button class="btn primary" type="button" id="dpdf"${cnt.todo || !cnt.si ? " disabled" : ""}>Ordine confermato in PDF</button><button class="btn" type="button" id="oxls">Proposta completa in Excel</button></div></div>`;
+  // intestazioni ordinabili: freccia sulla colonna scelta
+  $$("table.dectab thead th", host).forEach((th, i) => {
+    const k = DEC_SORT[i]; if (!k) return;
+    const on = R.decSort.k === k;
+    th.classList.add("sortable"); th.tabIndex = 0; th.setAttribute("aria-sort", on ? (R.decSort.dir < 0 ? "descending" : "ascending") : "none");
+    if (on) th.insertAdjacentHTML("beforeend", `<span class="sarr" aria-hidden="true">${R.decSort.dir < 0 ? "▼" : "▲"}</span>`);
+    if (!th.title) th.title = "Tocca per ordinare";
+    const go = () => { R.decSort = on ? { k, dir: -R.decSort.dir } : { k, dir: DEC_TEXT.has(k) ? 1 : -1 }; R.decShow = 100; rer(); };
+    th.onclick = go; th.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } };
+  });
   freezeTable($("table.dectab", host));
   const rer = () => renderDecision(host, R, recalc, sel);
   $("#alth", host).onchange = e => { rules().alertMonths = +e.target.value; saveRules(); renderProposal(sel, recalc); };

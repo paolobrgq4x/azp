@@ -395,3 +395,6 @@ label.field select{max-width:100%;text-overflow:ellipsis}
 .ibtn:hover,.ibtn[aria-expanded="true"]{border-color:var(--ink);color:var(--ink)}
 #binfo{margin:8px 0 0}
 .stagscale{display:flex;justify-content:space-between;margin-top:-4px}
+.dectab th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+.dectab th.sortable:hover{color:var(--ink)}
+.dectab th .sarr{margin-left:4px;font-size:9px;color:var(--ink)}
