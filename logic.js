@@ -8,6 +8,10 @@
  *   ok        : altrimenti
  *   nostorico : codice con giacenza > 0 presente solo nel file giacenze
  * in_b = false segnala un codice dello storico assente nel file giacenze (giacenza considerata 0).
+ *
+ * Quali giacenze: le liste movimentazione possono riportare la giacenza di ogni codice alla fine del mese precedente.
+ *   - senza file giacenze valgono quelle delle liste;
+ *   - con il file giacenze, più recente, valgono quelle del file; costi, scorte, consumi e ordini aperti restano quelli delle liste.
  */
 
 const MAX_ROWS = 150000;
@@ -42,14 +46,20 @@ const annuo = i => (i.cons_mese > 0 ? i.cons_mese * 12 : 0);
  * cons_mese  = consumo medio mensile in pezzi. È la base di coperture, scenari e indicatori.
  * La colonna QtaVen/UltVen contiene la quantità venduta di recente oppure, se è nel formato AAAAMMGG,
  * la data dell'ultima vendita.
- * rowsB: [code, giac, desc]
+ * In coda a ogni riga di rowsA (posizione 14) c'è la giacenza riportata dalla lista, vuota se la lista non la riporta.
+ * rowsB: [code, giac, desc]; null se il file giacenze non è stato caricato: allora valgono le giacenze delle liste.
+ * opts.missing: come trattare i codici delle liste assenti dal file giacenze:
+ *   "zero"  (predefinito) giacenza zero: il codice è esaurito;
+ *   "lista" resta la giacenza della lista: serve quando il file giacenze è parziale.
  */
-function cross(rowsA, rowsB) {
-  if (!Array.isArray(rowsA) || !Array.isArray(rowsB)) throw new Error("Formato dati non valido.");
-  if (rowsA.length > MAX_ROWS || rowsB.length > MAX_ROWS) throw new Error("File troppo grandi (massimo 150.000 righe).");
+function cross(rowsA, rowsB, opts) {
+  const useFile = rowsB !== null && rowsB !== undefined;
+  if (!Array.isArray(rowsA) || (useFile && !Array.isArray(rowsB))) throw new Error("Formato dati non valido.");
+  if (rowsA.length > MAX_ROWS || (useFile && rowsB.length > MAX_ROWS)) throw new Error("File troppo grandi (massimo 150.000 righe).");
+  const keep = useFile && !!opts && opts.missing === "lista";
 
   const giac = new Map(), bDesc = new Map();
-  for (const r of rowsB) {
+  for (const r of useFile ? rowsB : []) {
     if (!Array.isArray(r)) continue;
     const c = code(r[0]); if (!c) continue;
     giac.set(c, (giac.get(c) || 0) + num(r[1]));
@@ -57,14 +67,18 @@ function cross(rowsA, rowsB) {
   }
 
   const seen = new Set(), items = [];
-  let dup = 0;
+  let dup = 0, nList = 0, nListPos = 0;
   for (const r of rowsA) {
     if (!Array.isArray(r)) continue;
     const c = code(r[0]); if (!c) continue;
     if (seen.has(c)) { dup++; continue; }
     seen.add(c);
-    const inB = giac.has(c);
-    const g = inB ? giac.get(c) : 0;
+    // giacenza riportata dalla lista: null se la cella è vuota
+    const hasL = !(r[14] === null || r[14] === undefined || r[14] === ""), gl = hasL ? num(r[14]) : null;
+    if (hasL) { nList++; if (gl !== 0) nListPos++; }
+    // senza file giacenze ogni codice ha la giacenza della lista; con il file, chi non c'è è a zero (oppure resta alla giacenza della lista)
+    const inB = useFile ? giac.has(c) : true;
+    const g = useFile ? (inB ? giac.get(c) : keep && hasL ? gl : 0) : hasL ? gl : 0;
     const cost = num(r[4]), ord = num(r[5]), smin = num(r[6]), smax = num(r[7]);
     const disp = g + ord, sf = saleField(r[11]);
     let status = "ok", delta = 0, val = 0;
@@ -74,13 +88,15 @@ function cross(rowsA, rowsB) {
     items.push({
       code: c, descr: str(r[1]), loc: str(r[2], 20), dg: str(r[3], 20), status, in_b: inB,
       giac: g, ord, smin, smax, delta, cost, val_giac: g * cost, val_action: val, regolarita: Math.max(0, num(r[8])), cons_mese: Math.max(0, num(r[9])), listino: r[10] == null || r[10] === "" ? null : num(r[10]),
-      qty_sold: sf.qty, last_sale: sf.date, ven_spc: r[12] == null || r[12] === "" ? null : num(r[12]), fab: r[13] == null || r[13] === "" ? null : num(r[13])
+      qty_sold: sf.qty, last_sale: sf.date, ven_spc: r[12] == null || r[12] === "" ? null : num(r[12]), fab: r[13] == null || r[13] === "" ? null : num(r[13]), giac_lista: gl
     });
   }
+  // Senza file giacenze servono le giacenze delle liste: se non ci sono, ogni codice risulterebbe a zero.
+  if (!useFile && !nListPos) throw new Error("Le liste movimentazione non riportano le giacenze: carica anche il file giacenze.");
   for (const [c, q] of giac) {
     if (seen.has(c) || q <= 0) continue;
     items.push({ code: c, descr: bDesc.get(c) || "", loc: "", dg: "", status: "nostorico", in_b: true,
-      giac: q, ord: 0, smin: 0, smax: 0, delta: 0, cost: 0, val_giac: 0, val_action: 0, regolarita: 0, cons_mese: 0, listino: null, qty_sold: null, last_sale: null, ven_spc: null, fab: null });
+      giac: q, ord: 0, smin: 0, smax: 0, delta: 0, cost: 0, val_giac: 0, val_action: 0, regolarita: 0, cons_mese: 0, listino: null, qty_sold: null, last_sale: null, ven_spc: null, fab: null, giac_lista: null });
   }
 
   const by = s => items.filter(i => i.status === s);
@@ -95,7 +111,9 @@ function cross(rowsA, rowsB) {
     n_nogiac: items.filter(i => !i.in_b).length,
     n_nostorico: by("nostorico").length
   };
-  return { items, kpi, dup };
+  // da dove vengono le giacenze: "lista", "file", oppure "file_lista" (file, e lista per i codici che nel file non ci sono)
+  const src = !useFile ? "lista" : keep && nList ? "file_lista" : "file";
+  return { items, kpi, dup, stock: { src, n_list: nList } };
 }
 
 /* Gruppo principale: quarta cifra del codice particolare (es. 12385671 -> 8). */

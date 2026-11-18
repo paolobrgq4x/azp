@@ -35,6 +35,19 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 
 I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
 
+## Quali giacenze si usano
+
+Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la situazione al momento dell'estrazione.
+
+- **Solo le liste** — se riportano le giacenze, i calcoli partono da quelle: il file giacenze è facoltativo.
+- **Liste e file giacenze** — valgono le giacenze del file, più recenti. Costi, SMin, SMax, consumo, regolarità e ordini aperti restano quelli delle liste. Prima di salvare la pagina mostra il confronto: quanti codici sono cambiati, in calo e in aumento, e il valore al costo prima e dopo.
+- **Codici con giacenza nelle liste ma assenti dal file giacenze** — contano come esauriti (giacenza zero). Se il file è parziale si può tenere per loro la giacenza delle liste; quando gli assenti superano un quarto dei codici con giacenza, la scelta è obbligatoria.
+- **Liste senza giacenze** (colonna assente o vuota) — il file giacenze è obbligatorio.
+
+Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`: `lista`, `file`, `file_lista`) e, se è scritta nell'intestazione della colonna, la data a cui si riferiscono quelle delle liste (`stock_ref`); per ogni codice resta anche la giacenza riportata dalla lista (`giac_lista`). L'origine è scritta in ogni pagina, nell'Excel e nel PDF.
+
+Limite da conoscere: gli ordini aperti sono sempre quelli delle liste. Un ordine arrivato dopo la data delle liste è già nella giacenza del file e conta ancora come ordine aperto: per quel codice la proposta può risultare più bassa del necessario.
+
 ## File delle giacenze: qualsiasi tracciato
 
 Ogni utente può estrarre le giacenze dal proprio gestionale in una forma diversa. Del file servono solo due colonne, il **codice** e la **quantità in giacenza** (più la descrizione, se c'è): tutte le altre vengono ignorate. Le colonne si riconoscono così, nell'ordine:

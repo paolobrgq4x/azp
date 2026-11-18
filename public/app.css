@@ -365,3 +365,13 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .recog p,.fileent .meta{overflow-wrap:anywhere}
 .map{grid-template-columns:auto minmax(0,1fr)}
 .map select{min-width:0;width:100%}
+/* Quali giacenze si usano: riepilogo prima di salvare */
+.stocksum{border:1px solid var(--line);border-left:4px solid var(--info);border-radius:10px;padding:12px 14px;margin:14px 0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.stocksum.warn{border-left-color:var(--bad);background:var(--bad-soft)}
+.stocksum p{margin:0;overflow-wrap:anywhere}
+.stocksum:empty{display:none}
+.missbox{border:0;border-top:1px solid var(--line);margin:4px 0 0;padding:8px 0 0;min-width:0}
+.missbox legend{padding:0;font-size:14px;float:left;width:100%;margin-bottom:6px}
+.missbox .check{clear:both;padding-bottom:4px;align-items:flex-start}
+.missbox .check input{margin-top:3px;flex:none}
+.scen-title p{margin:2px 0 0}

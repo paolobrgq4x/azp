@@ -15,6 +15,23 @@ const romeDay = t => new Date(t).toLocaleDateString("sv-SE", { timeZone: "Europe
 const romeTime = t => new Date(t).toLocaleTimeString("it-IT", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" });
 // Un caricamento si indica con la data dei dati e, se è stato caricato quel giorno, con l'ora.
 const snapLabel = (d, at) => `${dIt(d)}${at && d && romeDay(at) === String(d).slice(0, 10) ? ` ore ${romeTime(at)}` : ""}`;
+// Da dove vengono le giacenze di un caricamento: dalle liste movimentazione (fine del mese precedente) oppure dal file giacenze, più recente.
+// Vale per un caricamento e per i risultati che ne riportano l'origine (stock_src, stock_ref). I caricamenti senza origine sono quelli con il file giacenze.
+function stockNote(s) {
+  if (!s) return "";
+  const ref = s.stock_ref ? ` al ${s.stock_ref}` : "";
+  if (s.stock_src === "lista") return `Giacenze delle liste movimentazione${ref || " (fine mese precedente)"}`;
+  if (s.stock_src === "file_lista") return `Giacenze del file giacenze; per i codici assenti dal file, quelle delle liste${ref}`;
+  return "Giacenze del file giacenze";
+}
+const stockShort = s => (s.stock_src === "lista" ? `giacenze delle liste${s.stock_ref ? ` al ${s.stock_ref}` : ""}` : s.stock_src === "file_lista" ? "giacenze del file e, per i codici assenti, delle liste" : "giacenze del file");
+// Data scritta nell'intestazione di una colonna («… al 31/10/2026»), nella forma GG/MM/AAAA; null se non c'è.
+function refDate(label) {
+  const m = /(?:^|\D)(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?!\d)/.exec(String(label == null ? "" : label));
+  if (!m) return null;
+  const d = +m[1], mo = +m[2], y = m[3].length === 2 ? 2000 + +m[3] : +m[3];
+  return d >= 1 && d <= 31 && mo >= 1 && mo <= 12 && y >= 2000 && y <= 2100 ? `${String(d).padStart(2, "0")}/${String(mo).padStart(2, "0")}/${y}` : null;
+}
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
 
 async function api(method, url, body) {
@@ -408,7 +425,7 @@ function wStep2(body, main) {
   body.innerHTML = `${last ? `<div class="msg${fresh ? "" : " old"}">Ultimo caricamento: ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}${last.uploaded_by_name ? `, da ${esc(last.uploaded_by_name)}` : ""}.${fresh ? "" : " Per un risultato aggiornato conviene caricare le liste e le giacenze più recenti."}
       <div class="row wrow"><button class="btn ${fresh ? "primary" : ""} sm" type="button" id="wuse">Usa questi dati e scegli i codici</button><span class="small muted">oppure carica i file qui sotto</span></div></div>` : ""}
     <section class="step" id="stepA"><span class="num">PASSO 2 DI 5</span><h2>Carica le liste movimentazione</h2>
-      <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se è divisa in più file, aggiungili tutti: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
+      <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se riporta anche le giacenze (alla fine del mese precedente), il file giacenze del passo successivo è facoltativo. Se è divisa in più file, aggiungili tutti: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <div class="row"><label class="btn" for="fileA">Scegli i file Excel</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
@@ -427,14 +444,15 @@ function wireSlot(slot) {
   step.addEventListener("drop", e => { e.preventDefault(); step.classList.remove("drag"); handleFiles(slot, Array.from(e.dataTransfer.files)); });
 }
 function wStep3(body, main) {
-  const U = state.upload;
-  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
-      <p class="meta">Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
+  const U = state.upload, opt = listStock().has;
+  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>${opt ? "Hai giacenze più recenti? (facoltativo)" : "Carica le giacenze attuali"}</h2>
+      <p class="meta">${opt ? "Le liste riportano già le giacenze: puoi salvare così. Se hai un file giacenze più recente caricalo: le sue giacenze sostituiscono quelle delle liste. " : ""}Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
     </section>
+    <div id="stocksum"></div>
     <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><div class="row"><span class="small muted" id="sstat"></span><button class="btn primary" type="button" id="save">Incrocia e salva</button></div></div>`;
   wireSlot("B"); renderSlot("B"); updateSave();
   $("#wback").onclick = () => wGo(main, 2);
@@ -450,7 +468,7 @@ async function wStep4(body, main) {
   const meta = await api("GET", `/api/snapshots/${W.snapId}/filters`);
   const opt = (id, title, text) => `<label class="choice${W.codesMode === id ? " on" : ""}" for="cm_${id}"><input type="radio" name="cm" id="cm_${id}" value="${id}"${W.codesMode === id ? " checked" : ""}><span><b>${title}</b><span class="small muted">${text}</span></span></label>`;
   body.innerHTML = `<section class="panel"><span class="num mono small muted">PASSO 4 DI 5</span><h2>Su quali codici vuoi lavorare?</h2>
-      <p class="small muted">Dati del ${esc(snapLabel(snap.week_date, snap.uploaded_at))}: ${fmtN(snap.n_codes)} codici.</p>
+      <p class="small muted">Dati del ${esc(snapLabel(snap.week_date, snap.uploaded_at))}: ${fmtN(snap.n_codes)} codici. ${esc(stockNote(snap))}.</p>
       <div class="choices">${opt("all", "Tutti i codici", "La piattaforma valuta l'intero magazzino.")}${opt("manual", "Li scrivo io", "Inserisci i codici uno alla volta o incollane un elenco.")}${opt("excel", "Li carico da un Excel", "Un file con una colonna di codici.")}</div>
       <div id="cbox"></div>
       <details class="filters"${W.groups.length || W.abc.length ? " open" : ""}><summary>Restringi ancora (facoltativo)</summary><div class="fgrid">
@@ -616,7 +634,7 @@ async function viewAndamento(main) {
   }
   const L = snaps[snaps.length - 1], P = snaps.length > 1 ? snaps[snaps.length - 2] : null;
   const pv = k => P ? P[k] : null;
-  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio</p></div>
+  main.innerHTML = `<div class="head"><div><h1>${esc(name)}</h1><p class="sub">Ultimo caricamento: ${esc(snapLabel(L.week_date, L.uploaded_at))} · ${fmtN(snaps.length)} caricamenti in archivio<br>${esc(stockNote(L))}</p></div>
     <div class="row"><a class="btn" href="#analisi">Analizza i codici</a><a class="btn primary" href="#carica">Carica dati</a></div></div>
   <section class="tiles">
     <div class="tile"><span class="k">Valore a magazzino</span><span class="v">${fmtE(L.val_tot)}</span><span class="s">${fmtN(L.n_codes)} codici · ${trend(L.val_tot, pv("val_tot"))}</span></div>
@@ -629,7 +647,7 @@ async function viewAndamento(main) {
     <div class="chart" id="c1"></div><div class="chart" id="c2"></div><div class="chart" id="c3"></div><div class="chart" id="c4"></div>
   </section>
   <section class="panel"><h2>Caricamenti</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Caricati da</th><th class="num">Codici</th><th class="num">Valore magazzino</th><th class="num">Sotto scorta</th><th class="num">Eccedenze</th><th class="num">Fermo</th><th></th></tr></thead><tbody>
-  ${snaps.slice().reverse().map(s => `<tr><td>${esc(snapLabel(s.week_date, s.uploaded_at))}</td><td class="small">${esc(s.uploaded_by_name || s.uploaded_by_user || "–")}<br><span class="muted">${esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td>
+  ${snaps.slice().reverse().map(s => `<tr><td>${esc(snapLabel(s.week_date, s.uploaded_at))}<br><span class="small muted">${esc(stockShort(s))}</span></td><td class="small">${esc(s.uploaded_by_name || s.uploaded_by_user || "–")}<br><span class="muted">${esc(new Date(s.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td>
     <td class="num">${fmtN(s.n_codes)}</td><td class="num">${fmtE(s.val_tot)}</td><td class="num">${fmtN(s.n_sotto)} · ${fmtE(s.val_sotto)}</td><td class="num">${fmtE(s.val_eccesso)}</td><td class="num">${fmtE(s.val_fermo)}</td>
     <td><div class="row"><button class="btn sm" type="button" data-open="${s.id}">Apri</button>${isAdmin() ? `<button class="btn sm danger" type="button" data-del="${s.id}" data-w="${esc(snapLabel(s.week_date, s.uploaded_at))}">Elimina</button>` : ""}</div></td></tr>`).join("")}
   </tbody></table></div></section>`;
@@ -672,6 +690,7 @@ async function viewAnalisi(main) {
     <div class="bar"><div class="chips" id="chips" role="group" aria-label="Filtra per stato"></div>
       <div class="row"><input type="search" id="q" placeholder="Cerca codice o descrizione" aria-label="Cerca codice o descrizione" value="${esc(A.q)}"><button class="btn" type="button" id="xls">Scarica Excel</button></div></div>
     <div class="chips" id="chips2" role="group" aria-label="Filtri sull'evoluzione"></div>
+    <p class="small muted" id="astock"></p>
     <div class="tablebox"><table id="tbl"><thead></thead><tbody><tr><td class="empty">Caricamento…</td></tr></tbody></table></div>
     <div class="pager" id="pager"></div>
   </section>
@@ -679,7 +698,8 @@ async function viewAnalisi(main) {
     <li><b>Disponibile</b> = giacenza + ordini aperti. <b>Sotto scorta</b>: disponibile sotto SMin; quantità suggerita = SMax − disponibile.</li>
     <li><b>Eccesso</b>: giacenza sopra SMax; eccedenza = giacenza − SMax, valorizzata al costo. <b>Fermo</b>: giacenza con SMin e SMax a zero.</li>
     <li><b>Caricamenti nello stato</b>: in quanti caricamenti consecutivi il codice è rimasto nello stesso stato. <b>Var. giacenza</b>: variazione della giacenza rispetto al caricamento precedente.</li>
-    <li><b>Non in giacenza</b>: codice dello storico assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nello storico.</li></ul></section>`;
+    <li><b>Non in giacenza</b>: codice dello storico assente nel file giacenze. <b>Senza storico</b>: codice a magazzino che non compare nello storico.</li>
+    <li><b>Giacenza</b>: quella del file giacenze, se è stato caricato; altrimenti quella riportata dalle liste movimentazione (fine del mese precedente). Sopra la tabella è scritto quale vale per questi dati.</li></ul></section>`;
   $("#wsel").onchange = e => { A.snapId = +e.target.value; A.offset = 0; loadItems(); };
   let qt; $("#q").oninput = e => { clearTimeout(qt); qt = setTimeout(() => { A.q = e.target.value; A.offset = 0; loadItems(); }, 300); };
   $("#xls").onclick = exportXls;
@@ -691,7 +711,8 @@ async function loadItems() {
   if (A.sort) { p.set("sort", A.sort); p.set("dir", A.dir); }
   const data = await api("GET", `/api/snapshots/${A.snapId}/items?${p}`);
   if (!$("#tbl")) return;
-  const c = data.counts;
+  const c = data.counts, snap = state.snapshots.find(s => s.id === A.snapId);
+  $("#astock").textContent = snap ? stockNote(snap) + "." : "";
   $("#chips").innerHTML = FILTRI.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("");
   const od = FILTRI3.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("");
   $("#chips2").innerHTML = od + (data.prev_week ? FILTRI2.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${A.f === k}">${l}<span class="n">${fmtN(c[k])}</span></button>`).join("") + `<span class="small muted">Confronto con il caricamento del ${esc(snapLabel(data.prev_week, data.prev_at))}</span>` : `<span class="small muted">Primo caricamento in archivio: i confronti compariranno dal prossimo.</span>`);
@@ -705,7 +726,7 @@ async function loadItems() {
     const v = r.prev_giac == null ? `<span class="muted">nuovo</span>` : r.giac - r.prev_giac === 0 ? "=" : (r.giac > r.prev_giac ? "+" : "") + fmtN(r.giac - r.prev_giac);
     const st = `<span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac" title="Assente nel file giacenze">n.g.</span>` : ""}${r.ondemand ? ` <span class="pill off" title="Escluso dagli scenari d'ordine">su richiesta</span>` : ""}`;
     return `<tr><td>${st}</td><td class="code"><button type="button" data-c="${esc(r.code)}">${esc(r.code)}</button></td><td class="desc">${esc(r.descr)}</td><td class="code">${esc(r.loc)}</td>
-      <td class="num">${fmtN(r.giac)}</td><td class="num">${data.prev_week ? v : "–"}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td>
+      <td class="num"${r.giac_lista != null && r.giac_lista !== r.giac ? ` title="Nelle liste: ${fmtN(r.giac_lista)}"` : ""}>${fmtN(r.giac)}</td><td class="num">${data.prev_week ? v : "–"}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td>
       <td class="num">${d}</td><td class="num">${r.status === "ok" ? "–" : fmtN(r.streak)}</td><td class="num">${r.cost ? fmtE2(r.cost) : "–"}</td><td class="num">${r.val_giac ? fmtE2(r.val_giac) : "–"}</td><td class="num">${r.val_action ? fmtE2(r.val_action) : "–"}</td></tr>`;
   }).join("");
   $$("[data-c]", t).forEach(b => b.onclick = () => { state.codice = b.dataset.c; location.hash = "#codice"; });
@@ -722,7 +743,7 @@ async function exportXls() {
     const data = await api("GET", `/api/snapshots/${A.snapId}/items?${p}`);
     const snap = state.snapshots.find(s => s.id === A.snapId);
     const rows = data.rows.map(r => ({
-      "Stato": STATI[r.status], "Codice": r.code, "Descrizione": r.descr, "Locazione": r.loc, "DG": r.dg, "Giacenza": r.giac,
+      "Stato": STATI[r.status], "Codice": r.code, "Descrizione": r.descr, "Locazione": r.loc, "DG": r.dg, "Giacenza": r.giac, "Giacenza riportata nelle liste": r.giac_lista == null ? "" : r.giac_lista,
       "Giacenza caricamento precedente": r.prev_giac, "Ordini aperti": r.ord, "SMin": r.smin, "SMax": r.smax, "Da ordinare (+) / Eccedenza (-)": r.delta,
       "Caricamenti nello stato": r.streak, "Costo unitario": r.cost, "Valore giacenza": Math.round(r.val_giac * 100) / 100, "Valore azione": Math.round(r.val_action * 100) / 100,
       "Presente in giacenza": r.in_b ? "Sì" : "No"
@@ -927,7 +948,7 @@ function renderProposal(sel = "#ores", recalc) {
     if (!S.prop.full && S.need > S.spent + 0.01) notes.push(`<div class="msg">Portare tutti i codici alla SMax costerebbe <b>${fmtE(S.need)}</b>: l'importo ne copre il ${pct(S.spent, S.need)}.</div>`);
     if (S.no_reg) notes.push(`<div class="msg">Nei dati caricati manca l'indice di regolarità delle vendite: la proporzione usa solo il consumo medio mensile.</div>`);
   }
-  host.innerHTML = `<div class="scen-title"><h2>${esc(R.title)}</h2></div>
+  host.innerHTML = `<div class="scen-title"><h2>${esc(R.title)}</h2><p class="small muted">${esc(stockNote(R))}.</p></div>
   <div id="rbox"></div>
   <section class="tiles">
     <div class="tile"><span class="k">Valore dell'ordine</span><span class="v">${fmtE(S.spent)}</span><span class="s">${amt ? `su ${fmtE(S.budget)} · restano ${fmtE(S.left)}` : `per coprire ${esc(orizzLabel(S.months))} di vendite`}</span></div>
@@ -1072,7 +1093,7 @@ function confirmedRows(rows) {
 }
 function orderMeta(R, rows) {
   const u = state.me.user, accepted = rows ? rows.filter(r => r.d === "si").map(r => r.l) : R.lines.filter(l => R.dec[l.code] === "si");
-  return { dealer: dealerName(state.dealerId), week: snapLabel(R.week, R.at), scen: R.title, user: u.full_name || u.username, date: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }),
+  return { dealer: dealerName(state.dealerId), week: snapLabel(R.week, R.at), stock: stockNote(R), scen: R.title, user: u.full_name || u.username, date: new Date().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }),
     n: accepted.length, q: accepted.reduce((t, l) => t + l.qty, 0), v: accepted.reduce((t, l) => t + l.value, 0), vl: accepted.reduce((t, l) => t + (l.listino || 0) * l.qty, 0),
     rejected: R.lines.length - accepted.length };
 }
@@ -1082,7 +1103,7 @@ function exportConfirmedXls(R, rows) {
   XLSX.utils.book_append_sheet(wb, ws, "Ordine confermato");
   const rej = rows.filter(r => r.d === "no").map(({ l, al }) => ({ "Codice particolare": l.code, "Descrizione": l.descr, "Quantità proposta": l.qty, "Valore netto": Math.round(l.value * 100) / 100, "Avviso": al.join(" · ") }));
   if (rej.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rej), "Righe non accettate");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati del", M.week], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Ordine confermato"], ["Concessionaria", M.dealer], ["Dati del", M.week], ["Giacenze", M.stock], ["Scenario", M.scen], ["Regole di riordino", rulesText(R.summary.rules || rules(), R.summary.mode)], ["Confermato da", M.user], ["Data", M.date],
     ["Righe accettate", M.n], ["Righe non accettate", M.rejected], ["Pezzi", M.q], ["Valore netto", Math.round(M.v * 100) / 100], ["Valore a listino", Math.round(M.vl * 100) / 100]]), "Riepilogo");
   XLSX.writeFile(wb, `ordine_confermato_${M.dealer.replace(/[^\w\-]+/g, "_")}_${R.week}.xlsx`);
 }
@@ -1093,7 +1114,7 @@ function exportConfirmedPdf(R, rows) {
   const th = rules().alertMonths, W = doc.internal.pageSize.getWidth();
   doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.text(title, 14, 16);
   doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(80);
-  doc.text([`Concessionaria: ${M.dealer}`, `Dati del ${M.week}`, `${M.scen}`, `Confermato da ${M.user} il ${M.date}`], 14, 23);
+  doc.text([`Concessionaria: ${M.dealer}`, `Dati del ${M.week} · ${M.stock}`, `${M.scen}`, `Confermato da ${M.user} il ${M.date}`], 14, 23);
   doc.setFontSize(8); doc.text(doc.splitTextToSize(`Regole di riordino: ${rulesText(R.summary.rules || rules(), R.summary.mode)}`, W - 28).slice(0, 2), 14, 41); doc.setFontSize(9.5);
   doc.setTextColor(20); doc.setFont("helvetica", "bold");
   doc.text(`${fmtN(M.n)} righe · ${fmtN(M.q)} pezzi · valore netto ${fmtE2(M.v)}${M.vl ? ` · a listino ${fmtE2(M.vl)}` : ""}`, W - 14, 23, { align: "right" });
@@ -1124,7 +1145,7 @@ function exportProposalXls(R) {
   const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows);
   ws["!cols"] = Object.keys(rows[0]).map(k => ({ wch: Math.max(10, k.length + 2) }));
   XLSX.utils.book_append_sheet(wb, ws, "Proposta");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Dati del", snapLabel(R.week, R.at)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Scenario", R.title], ["Regole di riordino", rulesText(S.rules || rules(), S.mode)], ["Dati del", snapLabel(R.week, R.at)], ["Giacenze", stockNote(R)], ["Concessionaria", dealerName(state.dealerId)], ["Valore", Math.round(S.spent * 100) / 100], ["Righe", S.n_lines], ["Pezzi", S.pieces]]), "Scenario");
   XLSX.writeFile(wb, `proposta_${dealerName(state.dealerId).replace(/[^\w\-]+/g, "_")}_${R.week}_${S.mode}.xlsx`);
 }
 
@@ -1180,7 +1201,7 @@ async function viewKpi(main) {
   const [K, T] = await Promise.all([api("GET", `/api/snapshots/${state.kpiSnap}/kpi`), api("GET", `/api/dealers/${state.dealerId}/kpitrend`)]);
   const pc = v => v == null ? "–" : fmtN(v * 100, 1) + "%";
   const st = s => K.by_status.find(x => x.status === s);
-  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
+  main.innerHTML = `<div class="head"><div><h1>Indicatori</h1><p class="sub">${esc(dealerName(state.dealerId))} · dati del ${esc(snapLabel(K.week, K.at))}<br>${esc(stockNote(K))}</p></div>${weekSelect("kw", snaps, state.kpiSnap)}</div>
   <section class="tiles">
     <div class="tile"><span class="k">Livello di servizio stimato</span><span class="v">${pc(K.service)}</span><span class="s">codici con SMin disponibili a scaffale · ${fmtN(K.n_zero)} a zero su ${fmtN(K.n_dem)}</span></div>
     <div class="tile neutral"><span class="k">Copertura media</span><span class="v">${K.coverage_months == null ? "–" : fmtN(K.coverage_months, 1) + " mesi"}</span><span class="s">valore a magazzino ÷ consumo mensile (${fmtE(K.cons_year / 12)})</span></div>
@@ -1287,12 +1308,12 @@ async function showCode() {
   <section class="tiles">
     <div class="tile"><span class="k">${esc(last.descr || "Codice")}</span><span class="v mono">${esc(d.code)}</span><span class="s">Locazione ${esc(last.loc || "–")} · costo ${fmtE2(last.cost)}</span></div>
     <div class="tile ${last.status === "sotto" ? "bad" : last.status === "eccesso" ? "warn" : last.status === "fermo" ? "idle" : "neutral"}"><span class="k">Stato attuale</span><span class="v">${STATI[last.status]}</span><span class="s">${last.status === "ok" ? "" : `da ${fmtN(last.streak)} ${last.streak === 1 ? "caricamento" : "caricamenti"} · `}dati del ${esc(snapLabel(last.week_date, last.uploaded_at))}</span></div>
-    <div class="tile neutral"><span class="k">Giacenza / SMin / SMax</span><span class="v">${fmtN(last.giac)} <span class="small muted">/ ${fmtN(last.smin)} / ${fmtN(last.smax)}</span></span><span class="s">${fmtN(last.ord)} in ordine</span></div>
+    <div class="tile neutral"><span class="k">Giacenza / SMin / SMax</span><span class="v">${fmtN(last.giac)} <span class="small muted">/ ${fmtN(last.smin)} / ${fmtN(last.smax)}</span></span><span class="s">${fmtN(last.ord)} in ordine${last.giac_lista != null && last.stock_src !== "lista" ? ` · nelle liste: ${fmtN(last.giac_lista)}` : ""}<br>${esc(stockShort(last))}</span></div>
   </section>
   <section class="panel" id="cprog"></section>
   <div class="chart" id="cc"></div>
-  <section class="panel"><h2>Caricamento per caricamento</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Da ordinare / Eccedenza</th><th class="num">Valore giacenza</th></tr></thead><tbody>
-  ${d.rows.slice().reverse().map(r => `<tr><td>${esc(snapLabel(r.week_date, r.uploaded_at))}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac">n.g.</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.delta > 0 ? "+" : ""}${r.delta ? fmtN(r.delta) : "–"}</td><td class="num">${fmtE2(r.val_giac)}</td></tr>`).join("")}
+  <section class="panel"><h2>Caricamento per caricamento</h2><div class="tablebox"><table><thead><tr><th>Dati del</th><th>Stato</th><th class="num">Giacenza</th><th class="num">Nelle liste</th><th class="num">Ord. aperti</th><th class="num">SMin</th><th class="num">SMax</th><th class="num">Da ordinare / Eccedenza</th><th class="num">Valore giacenza</th></tr></thead><tbody>
+  ${d.rows.slice().reverse().map(r => `<tr><td>${esc(snapLabel(r.week_date, r.uploaded_at))}</td><td><span class="pill ${r.status}">${STATI[r.status]}</span>${!r.in_b ? ` <span class="pill nogiac">n.g.</span>` : ""}</td><td class="num">${fmtN(r.giac)}</td><td class="num">${r.giac_lista == null ? "–" : fmtN(r.giac_lista)}</td><td class="num">${fmtN(r.ord)}</td><td class="num">${fmtN(r.smin)}</td><td class="num">${fmtN(r.smax)}</td><td class="num">${r.delta > 0 ? "+" : ""}${r.delta ? fmtN(r.delta) : "–"}</td><td class="num">${fmtE2(r.val_giac)}</td></tr>`).join("")}
   </tbody></table></div>${d.rows.length < d.weeks.length ? `<p class="small muted">Il codice compare in ${fmtN(d.rows.length)} caricamenti su ${fmtN(d.weeks.length)}.</p>` : ""}</section>`;
   $("#cflag").onclick = async () => {
     try {
@@ -1324,6 +1345,13 @@ async function viewRegole(main) {
     <li><b>Disponibile</b> = giacenza + ordini aperti.${ex("Filtro olio: 3 in giacenza + 2 ordinati = 5 disponibili.")}</li>
     <li><b>Vendita regolare</b> = consumo medio mensile × indice di regolarità delle vendite ÷ 12: sono i pezzi al mese su cui si può contare. L'indice va da 0 a 11,99; un valore più alto nel file conta come 11,99. Se nei dati manca l'indice, conta solo il consumo medio.${ex("Filtro olio: 8 × 9 ÷ 12 = 6 pezzi al mese. Candela: 10 × 6 ÷ 12 = 5. Pastiglie: 3 × 8 ÷ 12 = 2. Batteria: 1 × 3 ÷ 12 = 0,25. Un codice con regolarità 13,5 nel file viene letto come 11,99.")}</li>
     <li><b>Sempre esclusi</b> dagli scenari: i codici non tenuti a scorta (SMin e SMax a zero), i fermi, quelli senza storico e quelli segnati come «su richiesta».${ex("un codice con SMin 0 e SMax 0 che vende 0,4 pezzi al mese non entra mai in un ordine, nemmeno con un importo alto.")}</li></ul></section>
+  <section class="panel rules"><h3>Quali giacenze si usano</h3><ul>
+    <li><b>Solo le liste movimentazione</b>: se riportano la giacenza di ogni codice, alla fine del mese precedente, i calcoli partono da quella. Il file giacenze non serve.${ex("la lista di fine ottobre riporta 3 filtri olio: la piattaforma parte da 3.")}</li>
+    <li><b>Liste e file giacenze</b>: il file giacenze è la fotografia di oggi e sostituisce le giacenze delle liste. Costi, SMin, SMax, consumo, regolarità e ordini aperti restano quelli delle liste.${ex("la lista di fine ottobre riporta 3 filtri olio, il file giacenze del 15 novembre ne riporta 1. La piattaforma parte da 1: disponibile = 1 + 2 ordinati = 3.")}</li>
+    <li><b>Codici con giacenza nelle liste ma assenti dal file giacenze</b>: contano come esauriti, cioè a giacenza zero. Se il file giacenze è parziale si può tenere per loro la giacenza delle liste; quando i codici assenti sono più di un quarto di quelli con giacenza, la piattaforma chiede di scegliere prima di salvare.${ex("12 candele nella lista, nessuna riga nel file giacenze: valgono 0, oppure 12 se scegli di tenere la giacenza delle liste.")}</li>
+    <li><b>Liste senza giacenze</b> (colonna assente o vuota): il file giacenze è obbligatorio, altrimenti ogni codice risulterebbe a zero.</li>
+    <li><b>Ordini aperti</b>: sono sempre quelli delle liste. Se un ordine è arrivato dopo la data delle liste, i suoi pezzi sono già nella giacenza del file e contano ancora come ordine aperto: per quel codice la proposta può essere più bassa del necessario.${ex("lista: 3 filtri olio e 2 ordinati. I 2 sono arrivati e il file giacenze ne riporta 5: il disponibile calcolato è 5 + 2 = 7, quello vero è 5.")}</li>
+    <li>In ogni pagina, nell'Excel e nel PDF è scritto quali giacenze sono state usate.</li></ul></section>
   <section class="panel rules"><h3>Come viene classificato ogni codice</h3><ul>
     <li><b>Sotto scorta</b>: disponibile sotto la SMin.${ex("Filtro olio: 5 disponibili, SMin 8.")}</li>
     <li><b>A zero</b>: disponibile a zero con SMin sopra zero; nella tabella della proposta compaiono in cima.${ex("Pastiglie e batteria: 0 disponibili, SMin 3 e 1.")}</li>
@@ -1372,6 +1400,9 @@ const FIELDS_A = [
   { key: "cost", label: "Prezzo netto (costo)", syn: ["sco stk eur", "sco stk", "costo", "prezzo netto", "costo medio"] },
   { key: "listino", label: "Prezzo di listino", syn: ["prezzo listino eur", "prezzo listino", "listino"] },
   { key: "ord", label: "Ordini aperti", syn: ["ord. aperti", "ordini aperti", "ord aperti", "in ordine"] },
+  // giacenza riportata dalla lista (alla fine del mese precedente): facoltativa; se c'è, il file giacenze non è indispensabile
+  { key: "giac", label: "Giacenza riportata nella lista", syn: ["giac cross aggiornate al", "giac cross", "giacenze cross", "giacenza cross", "giacenza", "giacenze", "giac", "g.dispo.", "g.dispo", "esistenza", "stock"],
+    neg: ["min", "max", "mass", "valore", "importo", "prezzo", "costo", "ordin", "impegn", "media", "sicur", "riord"] },
   { key: "smin", label: "Scorta minima", req: true, syn: ["smin", "scorta min", "scorta minima"] },
   { key: "smax", label: "Scorta massima", req: true, syn: ["smax", "scorta max", "scorta massima"] },
   { key: "regolarita", label: "Regolarità vendite (indice)", syn: ["regolarità vendite", "regolarita vendite", "indice di regolarità", "regolarità", "regolarita"], hs: ["1sqy7ce"] },
@@ -1387,7 +1418,7 @@ const FIELDS_B = [
     neg: ["descr", "fornit", "client", "ubic", "locaz", "magazz", "sostit", "gruppo", "famigl", "categ", "ean", "barcode", "iva", "sconto"] },
   { key: "giac", label: "Giacenza", req: true,
     syn: ["g.dispo.", "g.dispo", "giacenza disponibile", "giacenza attuale", "giacenza fisica", "giacenza reale", "giacenza", "giac", "qta giacenza", "qta disponibile", "quantità disponibile", "quantità in giacenza", "disponibile", "disponibilità", "dispo", "esistenza", "quantità", "qta", "q.tà", "qty", "stock", "on hand", "saldo", "rimanenza"],
-    neg: ["min", "max", "prezzo", "costo", "listino", "valore", "importo", "ordin", "impegn", "prenot", "vendut", "vendit", "consum", "media", "sconto", "riord", "sicur", "transit", "arriv", "fabb", "lotto", "peso", "cod"] },
+    neg: ["min", "max", "mass", "prezzo", "costo", "listino", "valore", "importo", "ordin", "impegn", "prenot", "vendut", "vendit", "consum", "media", "sconto", "riord", "sicur", "transit", "arriv", "fabb", "lotto", "peso", "cod"] },
   { key: "desc", label: "Descrizione", syn: ["descrizione", "descr", "desc", "denominazione", "designazione", "testo breve"] }
 ];
 const norm = s => String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -1569,6 +1600,8 @@ function analyse(slot, rows, fresh) {
   if (mem) {
     const map = {};
     for (const f of fields) if (Number.isInteger(mem[f.key]) && mem[f.key] >= 0 && mem[f.key] < 500) map[f.key] = mem[f.key];
+    // la giacenza delle liste è una colonna aggiunta in seguito: i tracciati ricordati prima non la conoscono, e allora vale quella riconosciuta adesso
+    if (slot === "A" && map.giac == null && out.map.giac != null && !Object.values(map).includes(out.map.giac)) map.giac = out.map.giac;
     // si segnala solo quando serve: se oggi il riconoscimento darebbe le stesse colonne, e senza dubbi, non c'è niente da ricordare
     const same = fields.every(f => map[f.key] === out.map[f.key]);
     if (fields.every(f => !f.req || map[f.key] != null) && (!same || out.uncertain)) { out.map = map; out.memory = true; out.uncertain = false; out.how = {}; }
@@ -1654,16 +1687,17 @@ function readFile(file) {
 async function viewCarica(main) {
   if (needDealer(main)) return;
   const U = state.upload;
-  main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione e le giacenze più recenti. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
+  main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione più recenti. Il file giacenze serve se le liste non riportano le giacenze, oppure se ne hai uno più recente. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
   <div class="msg err" id="uerr" hidden></div>
   <section class="grid2">
-    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
+    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Se riporta anche le giacenze (alla fine del mese precedente), puoi calcolare già con questa. Puoi scegliere più file: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <label class="btn" for="fileA">Aggiungi file storico</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
+    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Le giacenze di oggi sostituiscono quelle riportate dalle liste: è facoltativo se le liste le riportano, obbligatorio se non le riportano. Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <div id="listB"></div>
       <label class="btn" for="fileB">Aggiungi file giacenza</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
   </section>
+  <div id="stocksum"></div>
   <div class="row"><button class="btn primary" type="button" id="save" disabled>Incrocia e salva</button><span class="small muted" id="sstat"></span></div>`;
   ["A", "B"].forEach(slot => {
     const inp = $("#file" + slot), step = $("#step" + slot);
@@ -1742,11 +1776,89 @@ function renderSlot(slot) {
     again();
   });
 }
+/* ============ Quali giacenze usare ============
+ * Le liste movimentazione possono riportare la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la fotografia di oggi.
+ *   - solo le liste: si calcola con le giacenze delle liste;
+ *   - liste e file giacenze: valgono le giacenze del file, più recenti. Costi, scorte, consumi e ordini aperti restano quelli delle liste.
+ * Se le liste non riportano le giacenze (colonna assente o vuota), il file giacenze è obbligatorio.
+ */
+const nz = v => { const n = typeof v === "number" ? v : numVal(v); return Number.isFinite(n) ? n : 0; };
+let LSTOCK = { key: null }, SCMP = { key: null };
+// Giacenze riportate dalle liste scelte: valgono se ogni lista ha la colonna e almeno un codice con giacenza diversa da zero.
+function listStock() {
+  const U = state.upload, key = U.A.map(s => [wbId(s.wb), s.sheet, s.headerRow, s.map.code, s.map.giac].join(":")).join("|");
+  if (LSTOCK.key === key) return LSTOCK;
+  const r = { key, has: U.A.length > 0, nocol: 0, codes: 0, pieces: 0, ref: null }, refs = new Set();
+  for (const s of U.A) {
+    const rows = s.wb.sheets[s.sheet] || [], c = s.map.code, g = s.map.giac; let pos = 0;
+    if (c != null && g != null) {
+      for (let i = s.headerRow + 1; i < rows.length; i++) { const row = rows[i] || []; if (row[c] == null || row[c] === "") continue; const q = nz(row[g]); if (q) { pos++; r.pieces += q; } }
+      const d = refDate((rows[s.headerRow] || [])[g]); if (d) refs.add(d);
+    }
+    if (!pos) { r.has = false; if (g == null) r.nocol++; }
+    r.codes += pos;
+  }
+  if (refs.size === 1) r.ref = [...refs][0];
+  return (LSTOCK = r);
+}
+// Confronto, per i codici delle liste, tra la giacenza riportata dalle liste e quella del file giacenze.
+function stockCompare() {
+  const U = state.upload;
+  if (!U.A.length || !U.B.length || !slotReady("A") || !slotReady("B")) return null;
+  const K = knownCodes(), key = listStock().key + "#" + U.B.map(s => [wbId(s.wb), s.sheet, s.headerRow, s.map.code, s.map.giac].join(":")).join("|") + "#" + K.key;
+  if (SCMP.key === key) return SCMP;
+  const B = new Map(); for (const r of extract("B")) { const c = codeKey(r[0]); B.set(c, (B.get(c) || 0) + r[1]); }
+  const seen = new Set(), o = { key, codes: 0, changed: 0, up: 0, down: 0, valList: 0, valFile: 0, withList: 0, miss: 0, missPieces: 0, missVal: 0 };
+  for (const r of extract("A")) {
+    const c = codeKey(r[0]); if (!c || seen.has(c)) continue; seen.add(c); o.codes++;
+    const hasL = !(r[14] == null || r[14] === ""), gl = hasL ? nz(r[14]) : 0, inB = B.has(c), gf = inB ? B.get(c) : 0, cost = nz(r[4]);
+    o.valFile += gf * cost; o.valList += gl * cost;
+    if (gl > 0) o.withList++;
+    if (!inB) { if (gl > 0) { o.miss++; o.missPieces += gl; o.missVal += gl * cost; } }
+    else if (hasL && gf !== gl) { o.changed++; if (gf > gl) o.up++; else o.down++; }
+  }
+  return (SCMP = o);
+}
+// Codici con giacenza nelle liste ma assenti dal file giacenze: di solito sono pochi (esauriti nel frattempo).
+// Se sono molti il file giacenze è probabilmente parziale, e prima di salvare serve una scelta.
+const manyMissing = c => !!c && c.miss >= 10 && c.miss / c.withList > 0.25;
+// La scelta vale solo per i file con cui è stata fatta: se cambiano le liste o le giacenze, si riparte.
+const missChoice = () => { const U = state.upload, c = stockCompare(); return c && U.missKey === c.key && (U.miss === "lista" || U.miss === "zero") ? U.miss : null; };
+const needMissChoice = () => listStock().has && manyMissing(stockCompare()) && !missChoice();
+// Le giacenze sono a posto con un file giacenze in ordine, oppure, senza file, quando le liste le riportano.
+const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : listStock().has);
+function stockSumHtml() {
+  const U = state.upload, LS = listStock();
+  if (!U.A.length || !slotReady("A")) return "";
+  const ref = LS.ref ? `al ${esc(LS.ref)}` : "alla fine del mese precedente";
+  if (!U.B.length) return LS.has
+    ? `<div class="stocksum"><p><b>Giacenze: quelle delle liste movimentazione</b>, ${ref}. ${fmtN(LS.codes)} codici con giacenza, ${fmtN(LS.pieces, Number.isInteger(LS.pieces) ? 0 : 2)} pezzi.</p>
+        <p class="small muted">Il file giacenze è facoltativo: se ne hai uno più recente aggiungilo, e le sue giacenze sostituiscono quelle delle liste.</p></div>`
+    : `<div class="stocksum warn"><p><b>Serve il file giacenze.</b> Le liste movimentazione non riportano le giacenze (${LS.nocol ? "la colonna non c'è" : "la colonna è vuota"}): senza il file giacenze ogni codice risulterebbe a zero.</p></div>`;
+  if (!slotReady("B")) return "";
+  if (!LS.has) return `<div class="stocksum"><p><b>Giacenze: quelle del file giacenze.</b> Le liste movimentazione non le riportano.</p></div>`;
+  const c = stockCompare(), many = manyMissing(c), ch = missChoice() || (many ? null : "zero");
+  const valFile = c.valFile + (ch === "lista" ? c.missVal : 0);
+  return `<div class="stocksum${many && !ch ? " warn" : ""}"><p><b>Giacenze: quelle del file giacenze</b>, più recenti di quelle delle liste (${ref}). Costi, SMin, SMax, consumi e ordini aperti restano quelli delle liste.</p>
+    <p class="small">Rispetto alle liste la giacenza è cambiata per <b>${fmtN(c.changed)}</b> codici su ${fmtN(c.codes)}: ${fmtN(c.down)} in calo, ${fmtN(c.up)} in aumento. Valore al costo: da ${fmtE(c.valList)} a ${fmtE(valFile)}.</p>
+    ${c.miss ? `<fieldset class="missbox"><legend><b>${fmtN(c.miss)} ${c.miss === 1 ? "codice ha" : "codici hanno"} giacenza nelle liste ma non ${c.miss === 1 ? "è" : "sono"} nel file giacenze</b> (${fmtN(c.missPieces, Number.isInteger(c.missPieces) ? 0 : 2)} pezzi, ${fmtE(c.missVal)}).${many ? " Sono molti: il file giacenze potrebbe essere parziale. Scegli come trattarli." : ""}</legend>
+      <label class="check" for="mz"><input type="radio" name="miss" id="mz" value="zero"${ch === "zero" ? " checked" : ""}> Sono esauriti: giacenza zero</label>
+      <label class="check" for="ml"><input type="radio" name="miss" id="ml" value="lista"${ch === "lista" ? " checked" : ""}> Il file giacenze è parziale: per loro tengo la giacenza delle liste</label></fieldset>` : ""}</div>`;
+}
+function renderStockSum() {
+  const h = $("#stocksum"); if (!h) return;
+  h.innerHTML = stockSumHtml();
+  $$("input[name=miss]", h).forEach(el => el.onchange = () => { state.upload.miss = el.value; state.upload.missKey = (stockCompare() || {}).key; updateSave(); });
+}
 const slotReady = slot => state.upload[slot].length > 0 && state.upload[slot].every(s => !entryMissing(slot, s).length && !(slot === "B" && needConfirm(s)));
 function updateSave() {
+  renderStockSum();
   const b = $("#save"); if (!b) return;
-  const ok = slotReady("A") && slotReady("B"), U = state.upload; b.disabled = !ok;
-  $("#sstat").textContent = ok ? "" : !U.A.length ? "Manca lo storico." : !U.B.length ? "Manca la giacenza." : U.B.some(s => !entryMissing("B", s).length && needConfirm(s)) ? "Conferma le colonne del file giacenze." : "Completa le colonne obbligatorie.";
+  const U = state.upload, ok = slotReady("A") && stockReady(); b.disabled = !ok;
+  // senza file giacenze si salva con le giacenze delle liste, se le riportano
+  b.textContent = !U.B.length && slotReady("A") && listStock().has ? "Salva con le giacenze delle liste" : "Incrocia e salva";
+  $("#sstat").textContent = ok ? "" : !U.A.length ? "Manca lo storico." : !slotReady("A") ? "Completa le colonne obbligatorie." : !U.B.length ? "Manca il file giacenze: le liste non riportano le giacenze."
+    : U.B.some(s => !entryMissing("B", s).length && needConfirm(s)) ? "Conferma le colonne del file giacenze." : !slotReady("B") ? "Completa le colonne obbligatorie." : "Scegli come trattare i codici assenti dal file giacenze.";
 }
 // Numeri scritti come testo (file CSV, celle di testo): «12,50», «1.250,00». Tutto il resto passa com'è.
 const numCell = v => { if (typeof v !== "string") return v; const n = numVal(v); return Number.isFinite(n) ? n : v; };
@@ -1756,7 +1868,7 @@ function extract(slot) {
     const rows = s.wb.sheets[s.sheet], m = s.map, g = (r, k) => m[k] == null ? null : r[m[k]];
     for (let i = s.headerRow + 1; i < rows.length; i++) {
       const r = rows[i] || [], c = g(r, "code"); if (c == null || c === "") continue;
-      if (slot === "A") out.push([c, g(r, "desc"), g(r, "loc"), g(r, "dg"), numCell(g(r, "cost")), numCell(g(r, "ord")), numCell(g(r, "smin")), numCell(g(r, "smax")), numCell(g(r, "regolarita")), numCell(g(r, "cons_mese")), numCell(g(r, "listino")), numCell(g(r, "qtaven")), numCell(g(r, "venspc")), numCell(g(r, "fab"))]);
+      if (slot === "A") out.push([c, g(r, "desc"), g(r, "loc"), g(r, "dg"), numCell(g(r, "cost")), numCell(g(r, "ord")), numCell(g(r, "smin")), numCell(g(r, "smax")), numCell(g(r, "regolarita")), numCell(g(r, "cons_mese")), numCell(g(r, "listino")), numCell(g(r, "qtaven")), numCell(g(r, "venspc")), numCell(g(r, "fab")), numCell(g(r, "giac"))]);
       else {
         // giacenze: il codice nella forma delle liste movimentazione, la quantità come numero; nient'altro
         const k = codeKey(c), q = qtyOf(g(r, "giac"));
@@ -1773,10 +1885,13 @@ async function save(onDone) {
     const names = k => [...new Set(U[k].map(s => s.wb.name))].join(", ");
     // i tracciati usati (intestazione → colonne) vengono ricordati per la concessionaria
     const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
-    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: names("B"), rowsA: extract("A"), rowsB: extract("B"), layouts });
+    // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
+    const useB = U.B.length > 0, LS = listStock();
+    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
+      missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts });
     if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
-    U.A = []; U.B = [];
-    toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}.`);
+    U.A = []; U.B = []; U.miss = null; U.missKey = null;
+    toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     if (onDone) return onDone(r);
     location.hash = "#analisi";
@@ -1805,6 +1920,10 @@ const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], [
 const G_GRP = ["KDA", "KDB", "KMA", "KMB", "ZUB", "OEL", "REI"];
 const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giac Cross Aggiornate al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
 const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.", "GrpOmog."];
+// Intestazione delle liste di prova: se riportano le giacenze, la colonna dice a che data (la fine del mese scorso).
+const G_COL_GIAC = 8;
+const monthEnd = () => { const d = new Date(), e = new Date(d.getFullYear(), d.getMonth(), 0); return `${String(e.getDate()).padStart(2, "0")}/${String(e.getMonth() + 1).padStart(2, "0")}/${e.getFullYear()}`; };
+const hdrA = withStock => G_HDR_A.map((h, i) => (i === G_COL_GIAC && withStock ? h + monthEnd() : h));
 function generateData(o) {
   const R = rng(o.seed), pick = a => a[Math.floor(R() * a.length)], ri = (a, b) => a + Math.floor(R() * (b - a + 1)), rf = (a, b) => a + R() * (b - a);
   const gauss = () => Math.sqrt(-2 * Math.log(1 - R())) * Math.cos(2 * Math.PI * R());
@@ -1862,7 +1981,18 @@ function generateData(o) {
   });
   for (let k = 0; k < nExtra; k++) { const [c, pt] = newCode(); B.set(c, [c, "V", pt[1], "R", R() < .5 ? 0 : ri(1, 3), pick(G_GRP)]); }
   const weeks = [];
-  const snap = () => ({ A: A.map(s => [s.dg, s.code, s.desc, s.loc, s.listino, s.costo, s.qv, s.vspc, null, s.ord, s.fab, s.regolarita, s.cons_mese, s.smin, s.smax, s.scad]), B: [...B.values()].map(r => r.slice()) });
+  // Giacenza riportata dalla lista (fine del mese precedente), ricavata all'indietro da quella di oggi, circa due settimane dopo:
+  // i pezzi venduti nel frattempo (mezzo mese di consumo) c'erano ancora, mentre i riordini arrivati nel frattempo non c'erano.
+  // Un codice a scorta riceve un lotto ogni «lot» mesi, quindi in mezzo mese lo riceve con probabilità 0,5 / lot: così arrivi e vendite
+  // si compensano e il valore del magazzino resta più o meno lo stesso tra le due date.
+  // Qualche codice che oggi non è nel file giacenze a fine mese aveva ancora dei pezzi: nel frattempo è andato esaurito.
+  const listG = s => {
+    const b = B.get(s.code), sold = poisson(s.cons_mese * .5);
+    if (!b) return sold;
+    const arr = s.smax && b[4] >= s.smin && !s.ord && R() < Math.min(1, .5 / band(s.costo).lot) ? Math.max(1, s.smax - s.smin) : 0;
+    return Math.max(0, b[4] + sold - arr);
+  };
+  const snap = () => ({ A: A.map(s => [s.dg, s.code, s.desc, s.loc, s.listino, s.costo, s.qv, s.vspc, o.listStock === false ? null : listG(s), s.ord, s.fab, s.regolarita, s.cons_mese, s.smin, s.smax, s.scad]), B: [...B.values()].map(r => r.slice()) });
   weeks.push(snap());
   // da un caricamento all'altro passa circa una settimana: arrivano gli ordini, si vende secondo il consumo, si riordina chi scende sotto la SMin
   for (let w = 1; w < o.weeks; w++) {
@@ -1906,7 +2036,7 @@ function stockSheet(B, fmt) {
   return [G_HDR_B].concat(B);
 }
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtB: "std", seed: Math.floor(Math.random() * 1e6) });
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtB: "std", listStock: true, seed: Math.floor(Math.random() * 1e6) });
   main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid2">
@@ -1921,11 +2051,13 @@ async function viewProva(main) {
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
     </div>
     <label class="field" for="gfb">Tracciato del file giacenze<select id="gfb">${TRACCIATI.map(([v, l]) => `<option value="${v}"${v === (P.fmtB || "std") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
+    <label class="field" for="gls">Giacenze riportate nelle liste movimentazione<select id="gls"><option value="1"${P.listStock !== false ? " selected" : ""}>Sì, alla fine del mese scorso: il file giacenze è facoltativo</option><option value="0"${P.listStock === false ? " selected" : ""}>No, colonna vuota: il file giacenze è obbligatorio</option></select></label>
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
     <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
+    <li><b>Giacenze riportate nelle liste</b>: la lista ha una colonna con la giacenza di ogni codice alla fine del mese scorso; il file giacenze è la situazione di oggi, circa due settimane dopo. Tra le due date si è venduto, per qualche codice è arrivato un riordino e qualche codice è andato esaurito e non compare più nel file giacenze. Puoi caricare solo la lista, e i calcoli usano le sue giacenze, oppure anche il file giacenze, che le sostituisce. Con la colonna vuota il file giacenze è obbligatorio.</li>
     <li><b>Tracciato del file giacenze</b>: gli stessi dati si possono avere in forme diverse, per provare che la piattaforma trova da sola codice e giacenza. «Altro gestionale» ha un titolo, colonne con altri nomi e in altro ordine, più impegnato, in arrivo, costo e data; «sigle» ha nomi che non dicono niente e tre colonne di quantità, quindi la prima volta la piattaforma chiede conferma e poi se ne ricorda; «solo dati» non ha intestazione.</li>
     <li><b>Volumi in euro</b> (facoltativi): il venduto annuo è consumo medio mensile × 12 × prezzo netto di tutti i codici delle liste; il valore a magazzino è giacenza × prezzo netto. La piattaforma adatta le quantità (consumi, SMin, SMax e giacenze) per avvicinarsi agli importi, senza cambiare i prezzi. Con più caricamenti, gli importi valgono per l'ultimo. Lasciati vuoti, i volumi escono da soli in base al numero di codici.</li>
     <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
@@ -1937,7 +2069,7 @@ async function viewProva(main) {
     const n = v => Math.round(parseNum(v));
     P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
     P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
-    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std";
+    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std"; P.listStock = $("#gls").value !== "0";
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
@@ -1946,7 +2078,7 @@ async function viewProva(main) {
       for (let w = 0; w < weeks.length; w++) {
         const tag = weeks.length > 1 ? `caricamento_${w + 1}` : "dati";
         st.textContent = `Preparo il caricamento ${w + 1} di ${weeks.length}…`; await new Promise(r => setTimeout(r, 30));
-        const wa = XLSX.utils.book_new(), sa = XLSX.utils.aoa_to_sheet([["LISTA MOVIMENTAZIONE"], G_HDR_A].concat(weeks[w].A));
+        const wa = XLSX.utils.book_new(), sa = XLSX.utils.aoa_to_sheet([["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
         XLSX.utils.book_append_sheet(wa, sa, "Liste Movimentazione");
         zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
         const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
@@ -2010,7 +2142,7 @@ async function viewAdmin(main) {
     const f = +$("#upd").value || 0, list = uploads.filter(u => !f || u.dealer_id === f), host = $("#uplist");
     host.innerHTML = list.length ? `<div class="tablebox flagbox"><table><thead><tr><th><input type="checkbox" id="upall" aria-label="Seleziona tutte"></th><th>Concessionaria</th><th>Dati del</th><th>File caricati</th><th>Caricati da</th><th class="num">Codici</th></tr></thead><tbody>
       ${list.map(u => `<tr><td><input type="checkbox" data-up="${u.id}"${sel.has(u.id) ? " checked" : ""} aria-label="Seleziona"></td><td>${esc(u.dealer_name)}</td><td>${esc(snapLabel(u.week_date, u.uploaded_at))}</td>
-        <td class="small">${esc(u.file_a || "–")}<br><span class="muted">${esc(u.file_b || "")}</span></td><td class="small">${esc(u.uploaded_by_name || u.uploaded_by_user || "utente eliminato")}<br><span class="muted">${esc(new Date(u.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td><td class="num">${fmtN(u.n_codes)}</td></tr>`).join("")}</tbody></table></div>`
+        <td class="small">${esc(u.file_a || "–")}<br><span class="muted">${esc(u.file_b || stockShort(u))}</span></td><td class="small">${esc(u.uploaded_by_name || u.uploaded_by_user || "utente eliminato")}<br><span class="muted">${esc(new Date(u.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" }))}</span></td><td class="num">${fmtN(u.n_codes)}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="muted">Nessun caricamento.</p>`;
     const upd = () => { $("#updel").disabled = !sel.size; $("#updel").textContent = sel.size ? `Elimina selezionate (${fmtN(sel.size)})` : "Elimina selezionate"; };
     $$("[data-up]", host).forEach(c => c.onchange = () => { const id = +c.dataset.up; if (c.checked) sel.add(id); else sel.delete(id); upd(); });

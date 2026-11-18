@@ -219,7 +219,7 @@ app.delete("/api/users/:id", auth(true), wrap(async (req, res) => {
 }));
 
 app.get("/api/uploads", auth(true), wrap(async (req, res) => {
-  const { rows } = await pool.query(`SELECT s.id, s.dealer_id, d.name AS dealer_name, s.week_date, s.uploaded_at, s.file_a, s.file_b, s.n_codes,
+  const { rows } = await pool.query(`SELECT s.id, s.dealer_id, d.name AS dealer_name, s.week_date, s.uploaded_at, s.file_a, s.file_b, s.n_codes, s.stock_src, s.stock_ref,
       u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
     FROM snapshots s JOIN dealers d ON d.id = s.dealer_id LEFT JOIN users u ON u.id = s.uploaded_by ORDER BY s.uploaded_at DESC`);
   res.json(rows);
@@ -275,13 +275,13 @@ async function relink(c, dealerId, fromWeek) {
   }
 }
 
-const COLS = ["code", "descr", "loc", "dg", "status", "in_b", "giac", "ord", "smin", "smax", "delta", "cost", "val_giac", "val_action", "regolarita", "cons_mese", "listino", "qty_sold", "last_sale", "ven_spc", "fab"];
-const TYPES = ["text", "text", "text", "text", "text", "bool", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "date", "float8", "float8"];
+const COLS = ["code", "descr", "loc", "dg", "status", "in_b", "giac", "ord", "smin", "smax", "delta", "cost", "val_giac", "val_action", "regolarita", "cons_mese", "listino", "qty_sold", "last_sale", "ven_spc", "fab", "giac_lista"];
+const TYPES = ["text", "text", "text", "text", "text", "bool", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "date", "float8", "float8", "float8"];
 
 /* ---------- Tracciati dei file ----------
  * Per ogni concessionaria si ricorda quali colonne sono state usate con una certa intestazione (impronta):
  * lo stesso file, la volta dopo, viene letto allo stesso modo. A = liste movimentazione, B = giacenze. */
-const LAYOUT_KEYS = { A: ["code", "desc", "loc", "dg", "cost", "listino", "ord", "smin", "smax", "regolarita", "cons_mese", "qtaven", "venspc", "fab"], B: ["code", "giac", "desc"] };
+const LAYOUT_KEYS = { A: ["code", "desc", "loc", "dg", "cost", "listino", "ord", "giac", "smin", "smax", "regolarita", "cons_mese", "qtaven", "venspc", "fab"], B: ["code", "giac", "desc"] };
 function cleanLayouts(v) {
   const out = new Map();
   for (const l of Array.isArray(v) ? v.slice(0, 40) : []) {
@@ -314,16 +314,19 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   if (!canSee(u, dealerId)) return fail(res, 403, "Non puoi caricare dati per questa concessionaria.");
   // data del caricamento: il giorno di oggi in Italia
   const week = new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Rome" });
+  // Giacenze: senza file giacenze (rowsB assente) valgono quelle riportate dalle liste; con il file valgono quelle del file.
   let result;
-  try { result = cross(req.body.rowsA, req.body.rowsB); } catch (e) { return fail(res, 400, e.message); }
+  try { result = cross(req.body.rowsA, req.body.rowsB == null ? null : req.body.rowsB, { missing: req.body.missing === "lista" ? "lista" : "zero" }); } catch (e) { return fail(res, 400, e.message); }
   if (!result.items.length) return fail(res, 400, "Nessun codice trovato nei file: controlla le colonne scelte.");
+  // data delle giacenze delle liste: solo nella forma GG/MM/AAAA, e solo se le liste riportano le giacenze
+  const ref = result.stock.n_list && typeof req.body.stock_ref === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(req.body.stock_ref) ? req.body.stock_ref : null;
 
   const out = await tx(async c => {
     const k = result.kpi;
-    const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id`,
-      [dealerId, week, u.id, String(req.body.file_a || "").slice(0, 200), String(req.body.file_b || "").slice(0, 200),
-       k.n_codes, k.val_tot, k.n_sotto, k.pz_sotto, k.val_sotto, k.n_eccesso, k.val_eccesso, k.n_fermo, k.val_fermo, k.n_nogiac, k.n_nostorico]);
+    const s = await c.query(`INSERT INTO snapshots (dealer_id, week_date, uploaded_by, file_a, file_b, n_codes, val_tot, n_sotto, pz_sotto, val_sotto, n_eccesso, val_eccesso, n_fermo, val_fermo, n_nogiac, n_nostorico, stock_src, stock_ref)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id`,
+      [dealerId, week, u.id, String(req.body.file_a || "").slice(0, 200), result.stock.src === "lista" ? "" : String(req.body.file_b || "").slice(0, 200),
+       k.n_codes, k.val_tot, k.n_sotto, k.pz_sotto, k.val_sotto, k.n_eccesso, k.val_eccesso, k.n_fermo, k.val_fermo, k.n_nogiac, k.n_nostorico, result.stock.src, ref]);
     const sid = s.rows[0].id;
     const CH = 5000;
     for (let i = 0; i < result.items.length; i += CH) {
@@ -333,7 +336,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
         SELECT $1, * FROM unnest(${COLS.map((_, j) => `$${j + 2}::${TYPES[j]}[]`).join(", ")})`, [sid, ...arrays]);
     }
     await relink(c, dealerId, week);
-    return { id: sid, week, dup: result.dup, kpi: k };
+    return { id: sid, week, dup: result.dup, kpi: k, stock_src: result.stock.src, stock_ref: ref };
   });
   // I tracciati si ricordano a caricamento riuscito; se non si riesce a salvarli, il caricamento resta valido.
   try { await saveLayouts(dealerId, u.id, cleanLayouts(req.body.layouts)); } catch (e) { console.error("Tracciati non salvati:", e.message); }
@@ -344,7 +347,7 @@ app.get("/api/dealers/:id/snapshots", auth(), wrap(async (req, res) => {
   const id = +req.params.id;
   if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
   const { rows } = await pool.query(`SELECT s.id, s.week_date, s.uploaded_at, s.file_a, s.file_b, s.n_codes, s.val_tot, s.n_sotto, s.pz_sotto, s.val_sotto,
-      s.n_eccesso, s.val_eccesso, s.n_fermo, s.val_fermo, s.n_nogiac, s.n_nostorico, u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
+      s.n_eccesso, s.val_eccesso, s.n_fermo, s.val_fermo, s.n_nogiac, s.n_nostorico, s.stock_src, s.stock_ref, u.full_name AS uploaded_by_name, u.username AS uploaded_by_user
     FROM snapshots s LEFT JOIN users u ON u.id = s.uploaded_by WHERE s.dealer_id = $1 ORDER BY s.week_date, s.uploaded_at, s.id`, [id]);
   res.json(rows);
 }));
@@ -370,7 +373,7 @@ const SORTS = { code: "code", descr: "descr", loc: "loc", giac: "giac", ord: "or
   val_giac: "val_giac", val_action: "val_action", streak: "streak", var: "(giac - prev_giac)", status: PRIO };
 
 async function snapshotFor(req, res) {
-  const { rows } = await pool.query("SELECT id, dealer_id, week_date, uploaded_at FROM snapshots WHERE id = $1", [+req.params.id]);
+  const { rows } = await pool.query("SELECT id, dealer_id, week_date, uploaded_at, stock_src, stock_ref FROM snapshots WHERE id = $1", [+req.params.id]);
   if (!rows[0]) { fail(res, 404, "Caricamento non trovato."); return null; }
   if (!canSee(req.user, rows[0].dealer_id)) { fail(res, 403, "Accesso non consentito."); return null; }
   return rows[0];
@@ -391,7 +394,7 @@ app.get("/api/snapshots/:id/items", auth(), wrap(async (req, res) => {
   const limit = all ? 200000 : Math.min(500, Math.max(1, Math.floor(+req.query.limit) || 200));
   const offset = all ? 0 : Math.min(1e7, Math.max(0, Math.floor(+req.query.offset) || 0));   // sempre un intero: nella query entrano solo numeri
   const [items, total, counts, prev] = await Promise.all([
-    pool.query(`SELECT code, descr, loc, dg, status, in_b, giac, ord, smin, smax, delta, cost, val_giac, val_action, regolarita, cons_mese, streak, prev_giac, ondemand
+    pool.query(`SELECT code, descr, loc, dg, status, in_b, giac, giac_lista, ord, smin, smax, delta, cost, val_giac, val_action, regolarita, cons_mese, streak, prev_giac, ondemand
       FROM ${SRC} WHERE ${where} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}`, params),
     pool.query(`SELECT count(*) AS n FROM ${SRC} WHERE ${where}`, params),
     pool.query(`SELECT ${Object.entries(FILTERS).map(([k, v]) => `count(*) FILTER (WHERE ${v}) AS ${k}`).join(", ")} FROM ${SRC}`, [s.id]),
@@ -416,7 +419,7 @@ app.post("/api/snapshots/:id/scenario", express.json({ limit: "5mb" }), auth(), 
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
   // regole: quelle inviate con la richiesta, altrimenti quelle salvate dall'utente
   const rules = cleanRules(b.rules || req.user.rules);
-  res.json({ week: s.week_date, at: s.uploaded_at, ...scenario(rows, { mode, budget, months: b.months, maxCover: b.maxCover, listOverride: b.listOverride !== false,
+  res.json({ week: s.week_date, at: s.uploaded_at, stock_src: s.stock_src, stock_ref: s.stock_ref, ...scenario(rows, { mode, budget, months: b.months, maxCover: b.maxCover, listOverride: b.listOverride !== false,
     minDemand: b.minDemand != null ? Math.min(1000, Math.max(0, +b.minDemand || 0)) : rules.minDemand, flagged: fl, filters, rules }) });
 }));
 
@@ -441,7 +444,7 @@ app.get("/api/snapshots/:id/filters", auth(), wrap(async (req, res) => {
 app.get("/api/snapshots/:id/kpi", auth(), wrap(async (req, res) => {
   const s = await snapshotFor(req, res); if (!s) return;
   const [{ rows }, fl] = await Promise.all([pool.query(`SELECT ${ITEM_COLS} FROM items WHERE snapshot_id = $1 ORDER BY code COLLATE "C"`, [s.id]), flaggedSet(s.dealer_id)]);
-  res.json({ week: s.week_date, at: s.uploaded_at, ...kpis(rows, fl) });
+  res.json({ week: s.week_date, at: s.uploaded_at, stock_src: s.stock_src, stock_ref: s.stock_ref, ...kpis(rows, fl) });
 }));
 
 app.get("/api/dealers/:id/kpitrend", auth(), wrap(async (req, res) => {
@@ -488,7 +491,7 @@ app.get("/api/history", auth(), wrap(async (req, res) => {
   if (!canSee(req.user, dealerId)) return fail(res, 403, "Accesso non consentito.");
   if (!c) return res.json({ rows: [], weeks: [] });
   const [h, w] = await Promise.all([
-    pool.query(`SELECT s.id AS snap_id, s.week_date, s.uploaded_at, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak, i.cons_mese, i.regolarita
+    pool.query(`SELECT s.id AS snap_id, s.week_date, s.uploaded_at, i.code, i.descr, i.loc, i.status, i.in_b, i.giac, i.giac_lista, s.stock_src, s.stock_ref, i.ord, i.smin, i.smax, i.delta, i.cost, i.val_giac, i.val_action, i.streak, i.cons_mese, i.regolarita
       FROM items i JOIN snapshots s ON s.id = i.snapshot_id WHERE s.dealer_id = $1 AND i.code = $2 ORDER BY s.week_date, s.uploaded_at, s.id`, [dealerId, c]),
     pool.query(`SELECT id, week_date FROM snapshots WHERE dealer_id = $1 ORDER BY ${SNAP_ORDER}`, [dealerId])
   ]);
