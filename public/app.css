@@ -351,3 +351,17 @@ tr.whyrow td{background:var(--info-soft);padding:0}
 .eqh.on{color:var(--ink);background:var(--info-soft);border-left:3px solid var(--info);padding:8px 10px;border-radius:0 8px 8px 0}
 #cprog .chips{margin:10px 0 4px}
 #cprog .whybox{position:static;width:auto;max-width:760px;margin-top:10px;border:1px solid var(--line);border-radius:10px;background:var(--bg)}
+.recog{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.recog .tablebox{max-width:620px}
+.prev{font-size:13px}
+.prev th,.prev td{padding:5px 10px}
+.prev td.miss{color:var(--bad)}
+.okrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.prev .pick{background:var(--info-soft)}
+.prev th.pick{color:var(--ink)}
+.fileent details .tablebox{margin-top:6px}
+.fileent details>p{margin-top:10px}
+.grid2>.step,.fileent,.recog{min-width:0}
+.recog p,.fileent .meta{overflow-wrap:anywhere}
+.map{grid-template-columns:auto minmax(0,1fr)}
+.map select{min-width:0;width:100%}

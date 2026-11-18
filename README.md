@@ -35,6 +35,19 @@ Sono tre. Il **disponibile** è la giacenza più gli ordini aperti. La **vendita
 
 I pezzi sono interi: si assegnano uno alla volta al codice più vicino al suo pezzo successivo. Ogni utente ha le proprie regole di riordino (correzione del consumo, arrotondamento, esclusioni, avviso di copertura); di ogni quantità si può aprire il conto passo per passo.
 
+## File delle giacenze: qualsiasi tracciato
+
+Ogni utente può estrarre le giacenze dal proprio gestionale in una forma diversa. Del file servono solo due colonne, il **codice** e la **quantità in giacenza** (più la descrizione, se c'è): tutte le altre vengono ignorate. Le colonne si riconoscono così, nell'ordine:
+
+1. **Tracciato già confermato** — se un file con la stessa intestazione è già stato caricato per la concessionaria con colonne diverse da quelle che la piattaforma sceglierebbe da sola, o dopo una conferma, valgono le colonne usate allora (tabella `layouts`).
+2. **Liste movimentazione** — il codice è la colonna i cui valori si ritrovano tra i codici delle liste scelte, anche se scritti con punti, trattini o spazi.
+3. **Nome della colonna** — un elenco di nomi possibili, con le parole che escludono («giacenza minima» non è la giacenza).
+4. **Contenuto** — codici senza ripetizioni; quantità intere non negative, scartando contatori di riga, date, prezzi e codici numerici.
+
+La pagina mostra sempre le colonne scelte, le prime righe lette e quanti codici si ritrovano nelle liste. Se la scelta non è sicura (più colonne plausibili, o quasi nessun codice in comune con le liste) chiede una conferma prima di salvare; le colonne si possono sempre cambiare a mano. Funziona anche con file senza riga di intestazione e con file CSV all'italiana (punto e virgola, virgola decimale): nei CSV i valori vengono letti come sono scritti, così «3,00» resta 3 e i codici non perdono gli zeri iniziali.
+
+In «Dati di prova» il file giacenze si può generare in quattro tracciati diversi per provare il riconoscimento.
+
 ## Struttura
 
 - `server.js` — API (accesso, utenti, concessionarie, caricamenti, analisi, storico codice)

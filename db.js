@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS code_flags (
   set_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (dealer_id, code)
 );
+-- Tracciati dei file già caricati: per ogni concessionaria, le colonne usate con una certa intestazione (impronta).
+CREATE TABLE IF NOT EXISTS layouts (
+  dealer_id int NOT NULL REFERENCES dealers(id) ON DELETE CASCADE,
+  kind text NOT NULL CHECK (kind IN ('A','B')),
+  sig text NOT NULL,
+  map jsonb NOT NULL,
+  set_by int REFERENCES users(id) ON DELETE SET NULL,
+  set_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (dealer_id, kind, sig)
+);
 CREATE INDEX IF NOT EXISTS items_code_idx ON items (code, snapshot_id);
 -- Nomi precedenti delle due colonne: vengono rinominate una sola volta, i dati restano dove sono.
 DO $$

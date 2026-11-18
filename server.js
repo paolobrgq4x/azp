@@ -278,6 +278,35 @@ async function relink(c, dealerId, fromWeek) {
 const COLS = ["code", "descr", "loc", "dg", "status", "in_b", "giac", "ord", "smin", "smax", "delta", "cost", "val_giac", "val_action", "regolarita", "cons_mese", "listino", "qty_sold", "last_sale", "ven_spc", "fab"];
 const TYPES = ["text", "text", "text", "text", "text", "bool", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "float8", "date", "float8", "float8"];
 
+/* ---------- Tracciati dei file ----------
+ * Per ogni concessionaria si ricorda quali colonne sono state usate con una certa intestazione (impronta):
+ * lo stesso file, la volta dopo, viene letto allo stesso modo. A = liste movimentazione, B = giacenze. */
+const LAYOUT_KEYS = { A: ["code", "desc", "loc", "dg", "cost", "listino", "ord", "smin", "smax", "regolarita", "cons_mese", "qtaven", "venspc", "fab"], B: ["code", "giac", "desc"] };
+function cleanLayouts(v) {
+  const out = new Map();
+  for (const l of Array.isArray(v) ? v.slice(0, 40) : []) {
+    if (!l || typeof l !== "object" || !Object.prototype.hasOwnProperty.call(LAYOUT_KEYS, l.kind) || typeof l.sig !== "string" || !/^[a-z0-9:]{3,60}$/.test(l.sig) || !l.map || typeof l.map !== "object") continue;
+    const map = {};
+    for (const k of LAYOUT_KEYS[l.kind]) if (Number.isInteger(l.map[k]) && l.map[k] >= 0 && l.map[k] < 500) map[k] = l.map[k];
+    if (map.code == null) continue;
+    out.set(l.kind + ":" + l.sig, { kind: l.kind, sig: l.sig, map });
+  }
+  return [...out.values()];
+}
+async function saveLayouts(dealerId, userId, layouts) {
+  if (!layouts.length) return;
+  for (const l of layouts) await pool.query(`INSERT INTO layouts (dealer_id, kind, sig, map, set_by) VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT (dealer_id, kind, sig) DO UPDATE SET map = EXCLUDED.map, set_by = EXCLUDED.set_by, set_at = now()`, [dealerId, l.kind, l.sig, JSON.stringify(l.map), userId]);
+  // se ne tengono al massimo 50 per concessionaria e tipo di file: i più recenti
+  await pool.query(`DELETE FROM layouts l WHERE l.dealer_id = $1 AND l.sig NOT IN (SELECT k.sig FROM layouts k WHERE k.dealer_id = $1 AND k.kind = l.kind ORDER BY k.set_at DESC LIMIT 50)`, [dealerId]);
+}
+app.get("/api/dealers/:id/layouts", auth(), wrap(async (req, res) => {
+  const id = +req.params.id;
+  if (!canSee(req.user, id)) return fail(res, 403, "Accesso non consentito.");
+  const { rows } = await pool.query("SELECT kind, sig, map FROM layouts WHERE dealer_id = $1", [id]);
+  res.json(rows);
+}));
+
 app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
   const u = req.user;
   const dealerId = u.role === "admin" ? +req.body.dealer_id : u.dealer_id;
@@ -306,6 +335,8 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
     await relink(c, dealerId, week);
     return { id: sid, week, dup: result.dup, kpi: k };
   });
+  // I tracciati si ricordano a caricamento riuscito; se non si riesce a salvarli, il caricamento resta valido.
+  try { await saveLayouts(dealerId, u.id, cleanLayouts(req.body.layouts)); } catch (e) { console.error("Tracciati non salvati:", e.message); }
   res.json(out);
 }));
 

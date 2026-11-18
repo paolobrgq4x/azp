@@ -64,7 +64,7 @@ function infoBox(title, html) {
 const state = {
   me: null, dealers: [], dealerId: null, snapshots: [],
   analisi: { snapId: null, f: "tutti", q: "", sort: null, dir: "asc", offset: 0, limit: 200 },
-  codice: "", upload: { A: [], B: [] }, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
+  codice: "", upload: { A: [], B: [] }, layouts: {}, layoutsDealer: null, kpiSnap: null, ordine: { snapId: null, mode: "amount", budgets: { amount: 50000, free: 50000 }, filters: { groups: [], abc: [], dg: [], q: "" }, result: null, history: [], meta: null }
 };
 const STATI = { sotto: "Sotto scorta", eccesso: "Eccesso", fermo: "Fermo", ok: "In linea", nostorico: "Senza storico" };
 const isAdmin = () => state.me && state.me.user.role === "admin";
@@ -429,7 +429,7 @@ function wireSlot(slot) {
 function wStep3(body, main) {
   const U = state.upload;
   body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
-      <p class="meta">Fotografia del magazzino con codice e quantità disponibile. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
+      <p class="meta">Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
@@ -1380,10 +1380,15 @@ const FIELDS_A = [
   { key: "venspc", label: "Vendite speciali", syn: ["ven spc", "venspc", "vendite speciali"] },
   { key: "fab", label: "FAB", syn: ["fab"] }
 ];
+// Per il file giacenze: «syn» sono i nomi con cui la colonna può presentarsi, «neg» le parole che la escludono (es. «giacenza minima» non è la giacenza).
 const FIELDS_B = [
-  { key: "code", label: "Codice", req: true, syn: ["stampanr.rc", "stampanr", "codice particolare", "codice", "part number", "partnumber", "articolo"] },
-  { key: "giac", label: "Giacenza", req: true, syn: ["g.dispo.", "g.dispo", "giacenza disponibile", "giacenza", "disponibile", "dispo", "qta"] },
-  { key: "desc", label: "Descrizione", syn: ["descrizione", "desc"] }
+  { key: "code", label: "Codice", req: true,
+    syn: ["stampanr.rc", "stampanr", "codice particolare", "codice articolo", "codice ricambio", "codice materiale", "codice prodotto", "codice", "cod. articolo", "cod. particolare", "numero particolare", "particolare", "part number", "partnumber", "part no", "articolo", "ricambio", "materiale", "referenza", "riferimento", "item", "sku", "cod", "art", "pn"],
+    neg: ["descr", "fornit", "client", "ubic", "locaz", "magazz", "sostit", "gruppo", "famigl", "categ", "ean", "barcode", "iva", "sconto"] },
+  { key: "giac", label: "Giacenza", req: true,
+    syn: ["g.dispo.", "g.dispo", "giacenza disponibile", "giacenza attuale", "giacenza fisica", "giacenza reale", "giacenza", "giac", "qta giacenza", "qta disponibile", "quantità disponibile", "quantità in giacenza", "disponibile", "disponibilità", "dispo", "esistenza", "quantità", "qta", "q.tà", "qty", "stock", "on hand", "saldo", "rimanenza"],
+    neg: ["min", "max", "prezzo", "costo", "listino", "valore", "importo", "ordin", "impegn", "prenot", "vendut", "vendit", "consum", "media", "sconto", "riord", "sicur", "transit", "arriv", "fabb", "lotto", "peso", "cod"] },
+  { key: "desc", label: "Descrizione", syn: ["descrizione", "descr", "desc", "denominazione", "designazione", "testo breve"] }
 ];
 const norm = s => String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9]/g, "");
 const fp = s => { let x = 0x811c9dc5; for (const c of s) { x ^= c.charCodeAt(0); x = Math.imul(x, 0x01000193) >>> 0; } return x.toString(36); };
@@ -1394,22 +1399,252 @@ function matchHeader(cell, f) {
     if (h === n) best = Math.max(best, 3); else if (h.startsWith(n) && n.length >= 4) best = Math.max(best, 2); else if (h.includes(n) && n.length >= 5) best = Math.max(best, 1); }
   return best;
 }
+const headScore = (cell, f) => { if (f.neg) { const h = norm(cell); if (h && f.neg.some(x => h.includes(x))) return 0; } return matchHeader(cell, f); };
 function analyseSheet(rows, fields) {
   let best = { headerRow: 0, map: {}, score: -1 };
   for (let r = 0; r < Math.min(rows.length, 20); r++) {
     const row = rows[r] || [], map = {}, used = new Set(); let score = 0;
-    for (const f of fields) { let bc = -1, bs = 0; row.forEach((c, i) => { if (used.has(i)) return; const s = matchHeader(c, f); if (s > bs) { bs = s; bc = i; } }); if (bc >= 0) { map[f.key] = bc; used.add(bc); score += bs * (f.req ? 2 : 1); } }
+    for (const f of fields) { let bc = -1, bs = 0; row.forEach((c, i) => { if (used.has(i)) return; const s = headScore(c, f); if (s > bs) { bs = s; bc = i; } }); if (bc >= 0) { map[f.key] = bc; used.add(bc); score += bs * (f.req ? 2 : 1); } }
     if (score > best.score) best = { headerRow: r, map, score };
   }
   return best;
 }
 const colL = i => { let s = ""; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+/* ============ Riconoscimento delle colonne del file giacenze ============
+ * Ogni utente può estrarre dal proprio gestionale un file diverso: cambiano i nomi, l'ordine e il numero delle colonne.
+ * Del file giacenze servono solo il codice e la quantità (più la descrizione, se c'è): tutte le altre colonne vengono ignorate.
+ * Le due colonne si riconoscono così, nell'ordine:
+ *   1. tracciato già confermato: se un file con la stessa intestazione è già stato caricato per la concessionaria, vale la scelta fatta allora;
+ *   2. liste movimentazione: il codice è la colonna i cui valori si ritrovano tra i codici delle liste scelte;
+ *   3. nome della colonna;
+ *   4. contenuto: codici alfanumerici senza ripetizioni, quantità intere non negative (non contatori, date, prezzi o codici numerici).
+ * Il risultato è sempre mostrato con le prime righe lette; quando la scelta non è sicura la piattaforma chiede una conferma.
+ */
+const codeKey = v => String(v == null ? "" : v).trim().toUpperCase().replace(/\s+/g, "").slice(0, 40);   // la stessa forma usata dal server
+const alnum = c => c.replace(/[^A-Z0-9]/g, "");
+const UNITA = /(pz|pzi|nr|pc|pcs|stk|cad)\.?$/i;
+// Numero scritto in una cella: virgola o punto decimale, separatori delle migliaia, segno anche in coda, unità di misura in coda.
+function numVal(v) {
+  if (typeof v === "number") return Number.isFinite(v) ? v : NaN;
+  if (v == null || typeof v === "boolean") return NaN;
+  let s = String(v).replace(/[\s ]/g, "").replace(UNITA, "");
+  if (!s) return NaN;
+  let neg = false;
+  if (s[0] === "-") { neg = true; s = s.slice(1); } else if (s[0] === "+") s = s.slice(1); else if (s[s.length - 1] === "-") { neg = true; s = s.slice(0, -1); }
+  if (!/^\d[\d.,]*$/.test(s)) return NaN;
+  const dot = s.lastIndexOf("."), com = s.lastIndexOf(",");
+  if (dot >= 0 && com >= 0) s = dot > com ? s.replace(/,/g, "") : s.replace(/\./g, "").replace(",", ".");   // con tutti e due i segni, l'ultimo è il decimale
+  else if (com >= 0) s = s.indexOf(",") !== com ? s.replace(/,/g, "") : s.replace(",", ".");                 // più virgole: migliaia; una sola: decimale
+  else if (dot >= 0 && s.indexOf(".") !== dot) s = s.replace(/\./g, "");                                     // più punti: migliaia
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? (neg ? -n : n) : NaN;
+}
+// Quantità di una cella: il numero scritto; se c'è altro testo vale la parte numerica iniziale; cella vuota = zero; NaN se non è un numero.
+const qtyOf = v => { const n = numVal(v); if (Number.isFinite(n)) return n; if (v == null || v === "") return 0; const p = parseFloat(String(v).replace(",", ".")); return Number.isFinite(p) ? p : NaN; };
+
+// Codici delle liste movimentazione scelte in questa pagina: servono a trovare la colonna del codice nel file giacenze.
+let wbSeq = 0;
+const wbIds = new WeakMap(), wbId = wb => { if (!wbIds.has(wb)) wbIds.set(wb, ++wbSeq); return wbIds.get(wb); };
+let KNOWN = { key: null, exact: new Set(), loose: new Map() };
+function knownCodes() {
+  const key = state.upload.A.map(s => [wbId(s.wb), s.sheet, s.headerRow, s.map.code].join(":")).join("|");
+  if (key === KNOWN.key) return KNOWN;
+  const exact = new Set(), loose = new Map();
+  for (const s of state.upload.A) {
+    if (s.map.code == null) continue;
+    const rows = s.wb.sheets[s.sheet] || [];
+    for (let i = s.headerRow + 1; i < rows.length; i++) { const c = codeKey((rows[i] || [])[s.map.code]); if (c) exact.add(c); }
+  }
+  for (const c of exact) { const k = alnum(c); if (k) loose.set(k, loose.has(k) && loose.get(k) !== c ? null : c); }
+  return (KNOWN = { key, exact, loose });
+}
+// Il codice come è scritto nelle liste: uguale, oppure uguale a meno di punti, trattini e barre (solo se corrisponde a un codice solo).
+const toKnown = (c, K) => (K.exact.has(c) ? c : K.loose.get(alnum(c)) || null);
+
+// Che cosa contiene ogni colonna, sulle prime 400 righe con dati a partire da «from».
+function colStats(rows, from, K) {
+  const take = [];
+  for (let i = Math.max(0, from); i < rows.length && take.length < 400; i++) { const r = rows[i]; if (r && r.some(v => v != null && v !== "")) take.push(r); }
+  const nc = Math.min(80, take.reduce((m, r) => Math.max(m, r.length), 0)), S = [];
+  for (let j = 0; j < nc; j++) {
+    const st = { j, ne: 0, num: 0, int: 0, neg: 0, big: 0, nz: 0, seq: 0, known: 0, mix: 0, uniq: 0, nuniq: 0, med: 0 }, seen = new Set(), nums = [];
+    let prev = null;
+    for (const r of take) {
+      const v = r[j]; if (v == null || v === "") { prev = null; continue; }
+      st.ne++;
+      const n = numVal(v);
+      if (Number.isFinite(n)) { st.num++; nums.push(n); if (Number.isInteger(n)) st.int++; if (n < 0) st.neg++; if (n !== 0) st.nz++; if (Math.abs(n) >= 1e5) st.big++; if (prev != null && n - prev === 1) st.seq++; prev = n; } else prev = null;
+      const c = codeKey(v);
+      if (c) { seen.add(c); if (K.exact.size && toKnown(c, K)) st.known++; if (c.length >= 4 && /[A-Z]/.test(c) && /\d/.test(c)) st.mix++; }
+    }
+    st.uniq = seen.size; st.nuniq = new Set(nums).size; nums.sort((a, b) => a - b); st.med = nums.length ? nums[nums.length >> 1] : 0;
+    S.push(st);
+  }
+  return { S, n: take.length };
+}
+const share = (a, b) => (b ? a / b : 0);
+// Colonna della giacenza: prima per nome; poi per contenuto, cioè numeri interi non negativi che non siano un contatore, una data, un codice o un prezzo.
+function pickQty(S, n, code, hdr, byName) {
+  const fG = FIELDS_B[1];
+  const c = S.filter(s => s.j !== code && s.ne >= Math.min(3, n)).map(s => {
+    const h = norm(hdr[s.j]), bad = !!h && fG.neg.some(x => h.includes(x)), nm = h && !bad ? matchHeader(hdr[s.j], fG) : 0;
+    return { j: s.j, nm, int: share(s.int, s.num), numShare: share(s.num, s.ne),
+      sc: 100 * nm - (bad ? 100 : 0) + 20 * share(s.int, s.num) + 10 * (1 - share(s.neg, s.num)) + 5 * share(s.nz, s.num) + 5 * share(s.ne, n)
+        - (share(s.seq, s.ne) >= 0.9 ? 30 : 0) - (share(s.big, s.num) >= 0.5 ? 30 : 0) - (s.med >= 1000 ? 30 : 0) - (s.num >= 10 && s.nuniq <= 1 ? 30 : 0) };   // una colonna con lo stesso numero su tutte le righe non è una giacenza
+  }).filter(x => x.numShare >= (x.nm ? 0.5 : 0.9)).sort((x, y) => y.sc - x.sc || x.j - y.j);
+  const top = c[0];
+  if (top && top.nm > 0) return { j: top.j, how: "nome", unsure: c.some(x => x !== top && x.nm >= top.nm) };
+  if (byName != null && byName !== code) return { j: byName, how: "nome", unsure: true };   // il nome c'è, ma la colonna contiene pochi numeri
+  if (top && top.sc > 0) return { j: top.j, how: "contenuto", unsure: top.int < 0.9 || c.some(x => x !== top && x.sc > 0 && x.sc >= top.sc - 15) };
+  return { j: null, how: null, unsure: false };
+}
+// Prima riga di dati di un file senza intestazione riconosciuta: la prima con un codice e una quantità numerica.
+function dataStart(rows, code, giac, K) {
+  if (code == null) return 0;
+  for (let i = 0; i < Math.min(rows.length, 60); i++) {
+    const r = rows[i] || [], c = codeKey(r[code]); if (!c) continue;
+    const q = giac == null ? null : r[giac], empty = q == null || q === "";
+    if (!empty ? Number.isFinite(numVal(q)) : (K.exact.size ? !!toKnown(c, K) : /\d/.test(c) && c.length <= 25 && r.filter(v => v != null && v !== "").length >= 2)) return i;
+  }
+  return 0;
+}
+function detectB(rows, out, noNames) {
+  const K = knownCodes(), named = !noNames && out.score > 0, nameScore = named ? out.score : 0;
+  const { S, n } = colStats(rows, named ? out.headerRow + 1 : 0, K);
+  if (!named) { out.map = {}; out.headerRow = -1; }
+  out.named = named; out.how = {}; out.uncertain = false; out.score = nameScore;
+  if (!n) return;
+  let hdr = named ? rows[out.headerRow] || [] : [];
+  // Codice: la colonna che si ritrova nelle liste movimentazione; altrimenti il nome; altrimenti la forma (codici alfanumerici senza ripetizioni).
+  let code = out.map.code != null ? out.map.code : null, howC = code != null ? "nome" : null;
+  const inLists = S.filter(s => s.known >= 3 && share(s.known, s.ne) >= 0.2).sort((x, y) => share(y.known, y.ne) - share(x.known, x.ne) || (y.j === code) - (x.j === code) || x.j - y.j)[0];
+  if (inLists) {
+    if (named && toKnown(codeKey(hdr[inLists.j]), K)) return detectB(rows, out, true);   // la riga presa per intestazione era una riga di dati
+    code = inLists.j; howC = "liste";
+  } else if (code == null) {
+    const c = S.filter(s => s.ne >= 0.6 * n && share(s.uniq, s.ne) >= 0.9 && (share(s.mix, s.ne) >= 0.3 || (share(s.int, s.ne) >= 0.9 && s.med >= 10000 && share(s.seq, s.ne) < 0.5)))
+      .sort((x, y) => (2 * share(y.mix, y.ne) + share(y.uniq, y.ne)) - (2 * share(x.mix, x.ne) + share(x.uniq, x.ne)) || x.j - y.j)[0];
+    if (c) { code = c.j; howC = "contenuto"; out.uncertain = true; }
+  }
+  let q = pickQty(S, n, code, hdr, named ? out.map.giac : null), desc = named ? out.map.desc : null;
+  if (!named) {
+    let start = dataStart(rows, code, q.j, K);
+    hdr = start > 0 ? rows[start - 1] || [] : [];
+    q = pickQty(S, n, code, hdr, null);
+    start = dataStart(rows, code, q.j, K);
+    out.headerRow = start - 1;
+    desc = hdr.findIndex(h => matchHeader(h, FIELDS_B[2]) > 0); if (desc < 0) desc = null;
+  }
+  if (q.unsure) out.uncertain = true;
+  out.map = {};
+  if (code != null) out.map.code = code;
+  if (q.j != null) out.map.giac = q.j;
+  if (desc != null && desc !== code && desc !== q.j) out.map.desc = desc;
+  out.how = { code: howC, giac: q.how };
+  out.score = nameScore + (code != null ? 3 : 0) + (q.j != null ? 3 : 0) + Math.min(1, n / 400);
+}
+// Impronta del tracciato: i nomi delle colonne della riga di intestazione, nell'ordine. Senza intestazione non c'è impronta.
+function layoutSig(rows, headerRow) {
+  const h = (rows[headerRow] || []).map(norm); while (h.length && !h[h.length - 1]) h.pop();
+  if (h.filter(Boolean).length < 2) return null;
+  const s = h.join("|");
+  return h.length + ":" + fp(s) + ":" + fp(s.split("").reverse().join(""));
+}
+async function loadLayouts() {
+  if (state.layoutsDealer === state.dealerId) return;
+  try {
+    const rows = await api("GET", `/api/dealers/${state.dealerId}/layouts`), L = {};
+    rows.forEach(r => { L[r.kind + ":" + r.sig] = r.map; });
+    state.layouts = L; state.layoutsDealer = state.dealerId;
+  } catch (e) { state.layouts = {}; state.layoutsDealer = null; }
+}
+/* Analisi di un foglio: riga di intestazione e colonne. Per le liste movimentazione conta il nome delle colonne; per le giacenze anche il contenuto.
+   fresh = true ignora il tracciato ricordato. */
+function analyse(slot, rows, fresh) {
+  const fields = slot === "A" ? FIELDS_A : FIELDS_B, a = analyseSheet(rows, fields);
+  const out = { headerRow: a.headerRow, map: a.map, score: a.score, named: a.score > 0, how: {}, uncertain: false, memory: false, manual: false, confirmed: false };
+  if (slot === "B") detectB(rows, out);
+  out.sig = layoutSig(rows, out.headerRow);
+  const mem = !fresh && out.sig && state.layoutsDealer === state.dealerId ? state.layouts[slot + ":" + out.sig] : null;
+  if (mem) {
+    const map = {};
+    for (const f of fields) if (Number.isInteger(mem[f.key]) && mem[f.key] >= 0 && mem[f.key] < 500) map[f.key] = mem[f.key];
+    // si segnala solo quando serve: se oggi il riconoscimento darebbe le stesse colonne, e senza dubbi, non c'è niente da ricordare
+    const same = fields.every(f => map[f.key] === out.map[f.key]);
+    if (fields.every(f => !f.req || map[f.key] != null) && (!same || out.uncertain)) { out.map = map; out.memory = true; out.uncertain = false; out.how = {}; }
+  }
+  return out;
+}
+// Controllo di quello che si leggerà dal file giacenze con le colonne scelte.
+function checkB(s) {
+  const K = knownCodes(), key = [s.sheet, s.headerRow, s.map.code, s.map.giac, s.map.desc, K.key].join("|");
+  if (s.chk && s.chk.key === key) return s.chk;
+  const rows = s.wb.sheets[s.sheet] || [], c = s.map.code, g = s.map.giac, d = s.map.desc, seen = new Set();
+  const r = { key, rows: 0, codes: 0, known: 0, nonNum: 0, neg: 0, dec: 0, dup: 0, pieces: 0, sample: [], hasLists: K.exact.size > 0 };
+  if (c != null) for (let i = s.headerRow + 1; i < rows.length; i++) {
+    const row = rows[i] || [], k = codeKey(row[c]); if (!k) continue;
+    r.rows++;
+    if (seen.has(k)) r.dup++; else { seen.add(k); if (r.hasLists && toKnown(k, K)) r.known++; }
+    if (g != null) { const n = qtyOf(row[g]); if (!Number.isFinite(n)) r.nonNum++; else { if (n < 0) r.neg++; if (!Number.isInteger(n)) r.dec++; r.pieces += n; } }
+    if (r.sample.length < 5) r.sample.push([k, g == null ? null : row[g], d == null ? null : row[d]]);
+  }
+  r.codes = seen.size;
+  return (s.chk = r);
+}
+const lowMatch = c => c.hasLists && c.codes >= 5 && c.known / c.codes < 0.3;
+// Serve una conferma quando la scelta delle colonne non è sicura, o quando quasi nessun codice si ritrova nelle liste.
+const needConfirm = s => !s.confirmed && !s.manual && s.map.code != null && s.map.giac != null && ((s.uncertain && !s.memory) || lowMatch(checkB(s)));
+// Quando cambiano le liste movimentazione, le giacenze già scelte vengono riconosciute di nuovo (non quelle scelte a mano o ricordate).
+function redetectB() {
+  for (const s of state.upload.B) {
+    if (s.manual || s.memory) continue;
+    const a = analyse("B", s.wb.sheets[s.sheet] || [], s.fresh), same = ["code", "giac", "desc"].every(k => a.map[k] === s.map[k]) && a.headerRow === s.headerRow;
+    Object.assign(s, a, { confirmed: same && s.confirmed });
+  }
+  renderSlot("B"); updateSave();
+}
+const HOW = { liste: "trovata confrontando i codici con le liste movimentazione", nome: "riconosciuta dal nome", contenuto: "riconosciuta dal contenuto" };
+function recogHtml(s, k, ask) {
+  const hdr = (s.wb.sheets[s.sheet] || [])[s.headerRow] || [], c = checkB(s), m = s.map;
+  const col = i => `colonna ${colL(i)}${hdr[i] != null && hdr[i] !== "" ? ` «${esc(hdr[i])}»` : ""}`;
+  const how = key => (s.manual ? "scelta da te" : s.memory ? "" : HOW[s.how[key]] || "");
+  const line = (lab, key) => `<b>${lab}</b>: ${col(m[key])}${how(key) ? ` <span class="muted">· ${how(key)}</span>` : ""}`;
+  const warn = [], rh = n => (n === 1 ? "riga ha" : "righe hanno");
+  const low = lowMatch(c);
+  if (low) warn.push(`${c.known ? `Solo ${fmtN(c.known)} codici su ${fmtN(c.codes)} compaiono` : `Nessuno dei ${fmtN(c.codes)} codici compare`} nelle liste movimentazione: controlla che la colonna del codice sia quella giusta e che il file sia della stessa concessionaria.`);
+  if (s.uncertain && ask) warn.push("La scelta delle colonne non è sicura: più colonne potrebbero contenere il codice o la giacenza. Controlla le prime righe lette e conferma, oppure cambia le colonne.");
+  if (c.nonNum) warn.push(`${fmtN(c.nonNum)} ${rh(c.nonNum)} una giacenza che non è un numero: ${c.nonNum === 1 ? "conta" : "contano"} come zero.`);
+  if (c.dec) warn.push(`${fmtN(c.dec)} ${rh(c.dec)} una giacenza con decimali: controlla che non sia una colonna di prezzi.`);
+  if (c.neg) warn.push(`${fmtN(c.neg)} ${rh(c.neg)} una giacenza negativa.`);
+  const info = [`${fmtN(c.rows)} righe con un codice`, c.hasLists ? `${fmtN(c.known)} codici su ${fmtN(c.codes)} presenti nelle liste movimentazione` : `${fmtN(c.codes)} codici diversi`, `${fmtN(c.pieces, Number.isInteger(c.pieces) ? 0 : 2)} pezzi in tutto`];
+  if (c.dup) info.push(`${fmtN(c.dup)} righe con un codice ripetuto: le quantità si sommano`);
+  const qCell = v => { if (v == null || v === "") return `<td class="num">0</td>`; const n = qtyOf(v); return Number.isFinite(n) ? `<td class="num">${fmtN(n, Number.isInteger(n) ? 0 : 2)}</td>` : `<td class="num miss">${esc(String(v).slice(0, 20))}</td>`; };
+  return `<div class="recog"><p class="small">${line("Codice", "code")}<br>${line("Giacenza", "giac")}${m.desc != null ? `<br>${line("Descrizione", "desc")}` : ""}</p>
+    <div class="tablebox"><table class="prev"><thead><tr><th>Codice letto</th><th class="num">Giacenza letta</th>${m.desc != null ? "<th>Descrizione</th>" : ""}</tr></thead>
+      <tbody>${c.sample.map(r => `<tr><td class="mono">${esc(r[0])}</td>${qCell(r[1])}${m.desc != null ? `<td>${esc(r[2] == null ? "" : String(r[2]).slice(0, 60))}</td>` : ""}</tr>`).join("")}</tbody></table></div>
+    <p class="small muted">${info.join(" · ")}. Le altre colonne del file vengono ignorate.</p>
+    ${warn.map(w => `<p class="small miss">${esc(w)}</p>`).join("")}
+    ${ask ? `<div class="okrow"><button class="btn sm primary" type="button" data-ok="${k}">${s.uncertain || !low ? "Le colonne sono giuste" : "Uso comunque questo file"}</button><span class="small muted">${s.uncertain || !low ? "oppure cambiale qui sotto" : "oppure toglilo, o cambia le colonne qui sotto"}</span></div>` : ""}</div>`;
+}
+// Le prime righe del file giacenze con tutte le colonne, per scegliere a colpo d'occhio: in evidenza il codice e la giacenza.
+function wideHtml(s) {
+  const rows = s.wb.sheets[s.sheet] || [], hdr = rows[s.headerRow] || [], first = rows.slice(s.headerRow + 1, s.headerRow + 6);
+  const tot = first.reduce((m, r) => Math.max(m, (r || []).length), hdr.length), pick = [s.map.code, s.map.giac].filter(i => i != null);
+  const cols = [...new Set(Array.from({ length: Math.min(12, tot) }, (_, i) => i).concat(pick))].sort((a, b) => a - b);
+  const cell = v => esc(v == null ? "" : String(v).slice(0, 24)), cls = i => (pick.includes(i) ? ' class="pick"' : "");
+  if (!first.length) return "";
+  return `<p class="small muted">Le prime righe del file${tot > cols.length ? ` (${cols.length} colonne su ${tot})` : ""}; in evidenza le colonne scelte.</p>
+    <div class="tablebox"><table class="prev"><thead><tr>${cols.map(i => `<th${cls(i)}>${colL(i)}${hdr[i] != null && hdr[i] !== "" ? " · " + cell(hdr[i]) : ""}${i === s.map.code ? " · codice" : i === s.map.giac ? " · giacenza" : ""}</th>`).join("")}</tr></thead>
+      <tbody>${first.map(r => `<tr>${cols.map(i => `<td${cls(i)}>${cell((r || [])[i])}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+}
 function readFile(file) {
   return new Promise((res, rej) => {
     if (typeof XLSX === "undefined") return rej(new Error("Il lettore Excel non si è caricato. Ricarica la pagina."));
     const fr = new FileReader();
     fr.onload = () => { try {
-      const wb = XLSX.read(new Uint8Array(fr.result), { type: "array" }); const sheets = {};
+      // raw: nei file di testo (CSV) i valori restano come sono scritti; altrimenti «3,00» verrebbe letto 300, «0012345» perderebbe gli zeri
+      // e «1-2» diventerebbe una data. I numeri si interpretano dopo, con la virgola decimale. Per i file Excel non cambia nulla.
+      const wb = XLSX.read(new Uint8Array(fr.result), { type: "array", raw: true }); const sheets = {};
       wb.SheetNames.forEach(n => { sheets[n] = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: null, raw: true, blankrows: false }); });
       res({ name: file.name, sheets });
     } catch (e) { rej(new Error(`Non riesco a leggere «${file.name}». Deve essere un Excel (.xlsx o .xls) non protetto da password.`)); } };
@@ -1425,7 +1660,7 @@ async function viewCarica(main) {
     <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <label class="btn" for="fileA">Aggiungi file storico</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Codice e quantità disponibile. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
+    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <div id="listB"></div>
       <label class="btn" for="fileB">Aggiungi file giacenza</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
   </section>
@@ -1444,49 +1679,89 @@ async function viewCarica(main) {
 async function handleFiles(slot, files) {
   if (!files.length) return; const err = $("#uerr"); err.hidden = true;
   const fields = slot === "A" ? FIELDS_A : FIELDS_B;
+  await loadLayouts();
   for (const file of files) {
     try {
       const wb = await readFile(file);
-      const all = Object.entries(wb.sheets).map(([name, rows]) => ({ sheet: name, rows, ...analyseSheet(rows, fields) }));
+      const all = Object.entries(wb.sheets).map(([name, rows]) => ({ sheet: name, rows, ...analyse(slot, rows) }));
       const best = all.reduce((x, y) => (y.score > x.score ? y : x));
-      // Fogli con la stessa intestazione del foglio migliore e con dati: si leggono tutti, come se fossero file separati.
+      // Fogli con la stessa intestazione del foglio migliore e con dati: si leggono tutti, con le stesse colonne, come se fossero file separati.
       const sig = a => (a.rows[a.headerRow] || []).map(v => String(v == null ? "" : v).trim().toUpperCase()).join("|");
       const req = a => fields.every(f => !f.req || a.map[f.key] != null), bestSig = sig(best);
-      const same = all.filter(a => a === best || (req(a) && sig(a) === bestSig && a.rows.length > a.headerRow + 1));
-      for (const a of same) state.upload[slot].push({ wb, sheet: a.sheet, headerRow: a.headerRow, map: a.map });
+      const same = all.filter(a => a === best || (a.rows.length > a.headerRow + 1 && sig(a) === bestSig && (bestSig ? req(best) : req(a) && a.map.code === best.map.code && a.map.giac === best.map.giac)));
+      for (const a of same) {
+        const e = { wb, sheet: a.sheet, headerRow: a.headerRow, named: a.named, sig: a.sig };
+        for (const k of ["map", "how", "uncertain", "memory", "manual", "confirmed"]) e[k] = a === best || !bestSig ? a[k] : best[k];
+        e.map = { ...e.map };
+        state.upload[slot].push(e);
+      }
       if (same.length > 1) toast(`«${file.name}»: letti ${same.length} fogli con le stesse colonne (${same.map(a => a.sheet).join(", ")}).`);
     } catch (e) { err.hidden = false; err.textContent = e.message; }
   }
   // I file vengono sempre uniti in ordine alfabetico (i fogli di uno stesso file restano nel loro ordine): lo stesso insieme di file dà lo stesso risultato, in qualsiasi ordine vengano scelti.
   state.upload[slot].sort((x, y) => (x.wb.name < y.wb.name ? -1 : x.wb.name > y.wb.name ? 1 : 0));
   renderSlot(slot); updateSave();
+  if (slot === "A") redetectB();
 }
 function entryMissing(slot, s) { return (slot === "A" ? FIELDS_A : FIELDS_B).filter(f => f.req && s.map[f.key] == null).map(f => f.label); }
 function renderSlot(slot) {
   const list = state.upload[slot], fields = slot === "A" ? FIELDS_A : FIELDS_B, host = $("#list" + slot);
   if (!host) return;
-  $("#step" + slot).classList.toggle("done", list.length > 0 && list.every(s => !entryMissing(slot, s).length));
+  $("#step" + slot).classList.toggle("done", slotReady(slot));
   host.innerHTML = list.map((s, k) => {
     const rows = s.wb.sheets[s.sheet] || [], n = Math.max(0, rows.length - s.headerRow - 1), miss = entryMissing(slot, s);
     const header = rows[s.headerRow] || [], names = Object.keys(s.wb.sheets), noCons = slot === "A" && s.map.cons_mese == null;
+    const first = rows.slice(s.headerRow + 1, s.headerRow + 31), ncol = Math.min(120, first.reduce((m, r) => Math.max(m, (r || []).length), header.length));
+    // nome di una colonna nei menu: l'intestazione, oppure la lettera della colonna con un valore di esempio
+    const colName = i => { const h = header[i]; if (h != null && h !== "") return String(h); const r = first.find(x => x && x[i] != null && x[i] !== ""); return `Colonna ${colL(i)}${r ? ` (es. ${String(r[i]).slice(0, 18)})` : ""}`; };
+    const ask = slot === "B" && needConfirm(s);
     let map = names.length > 1 ? `<label for="sh${slot}${k}">Foglio</label><select id="sh${slot}${k}" data-sh="${k}">${names.map(x => `<option${x === s.sheet ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>` : "";
-    for (const f of fields) map += `<label for="m${slot}${k}_${f.key}" class="${f.req ? "req" : ""}">${esc(f.label)}</label><select id="m${slot}${k}_${f.key}" data-e="${k}" data-k="${f.key}"><option value="">— nessuna —</option>${header.map((h, i) => `<option value="${i}"${s.map[f.key] === i ? " selected" : ""}>${esc(h == null || h === "" ? "Colonna " + colL(i) : h)}</option>`).join("")}</select>`;
-    return `<div class="fileent"><div class="row"><p class="meta"><b>${esc(s.wb.name)}</b><br>Foglio «${esc(s.sheet)}», ${fmtN(n)} righe${miss.length ? `<br><span class="miss">Mancano: ${esc(miss.join(", "))}.</span>` : ""}${noCons ? `<br><span class="miss">Consumo medio non riconosciuto: senza questa colonna coperture e scenari d'ordine non si possono calcolare.</span>` : ""}</p><button class="link" type="button" data-rm="${k}">Togli</button></div>
-      <details${miss.length || noCons ? " open" : ""}><summary>Colonne riconosciute</summary><div class="map">${map}</div></details></div>`;
+    for (const f of fields) map += `<label for="m${slot}${k}_${f.key}" class="${f.req ? "req" : ""}">${esc(f.label)}</label><select id="m${slot}${k}_${f.key}" data-e="${k}" data-k="${f.key}"><option value="">— nessuna —</option>${Array.from({ length: ncol }, (_, i) => `<option value="${i}"${s.map[f.key] === i ? " selected" : ""}>${esc(colName(i))}</option>`).join("")}</select>`;
+    return `<div class="fileent"><div class="row"><p class="meta"><b>${esc(s.wb.name)}</b><br>Foglio «${esc(s.sheet)}», ${fmtN(n)} righe${s.headerRow < 0 ? ", senza riga di intestazione" : ""}${s.memory ? `<br>Colonne come nell'ultimo caricamento di un file con questa intestazione. <button class="link" type="button" data-re="${k}">Riconosci di nuovo</button>` : ""}${miss.length ? `<br><span class="miss">Mancano: ${esc(miss.join(", "))}.</span>` : ""}${noCons ? `<br><span class="miss">Consumo medio non riconosciuto: senza questa colonna coperture e scenari d'ordine non si possono calcolare.</span>` : ""}</p><button class="link" type="button" data-rm="${k}">Togli</button></div>
+      ${slot === "B" && !miss.length ? recogHtml(s, k, ask) : ""}
+      <details data-d="${k}"${miss.length || noCons || ask || s.mapOpen ? " open" : ""}><summary>${slot === "B" ? "Cambia le colonne" : "Colonne riconosciute"}</summary><div class="map">${map}</div>${slot === "B" ? wideHtml(s) : ""}</details></div>`;
   }).join("");
-  $$("[data-rm]", host).forEach(b => b.onclick = () => { list.splice(+b.dataset.rm, 1); renderSlot(slot); updateSave(); });
-  $$("[data-sh]", host).forEach(el => el.onchange = () => { const s = list[+el.dataset.sh], a = analyseSheet(s.wb.sheets[el.value], fields); Object.assign(s, { sheet: el.value, headerRow: a.headerRow, map: a.map }); renderSlot(slot); updateSave(); });
-  $$("select[data-k]", host).forEach(el => el.onchange = () => { const s = list[+el.dataset.e]; if (el.value === "") delete s.map[el.dataset.k]; else s.map[el.dataset.k] = +el.value; renderSlot(slot); updateSave(); });
+  const again = () => { renderSlot(slot); updateSave(); if (slot === "A") redetectB(); };
+  // il riquadro delle colonne resta aperto finché non lo si richiude
+  $$("details[data-d]", host).forEach(d => d.addEventListener("toggle", () => { list[+d.dataset.d].mapOpen = d.open; }));
+  $$("[data-rm]", host).forEach(b => b.onclick = () => { list.splice(+b.dataset.rm, 1); again(); });
+  $$("[data-sh]", host).forEach(el => el.onchange = () => { const s = list[+el.dataset.sh]; Object.assign(s, { sheet: el.value }, analyse(slot, s.wb.sheets[el.value] || [])); again(); });
+  $$("[data-re]", host).forEach(b => b.onclick = () => { const s = list[+b.dataset.re]; Object.assign(s, analyse(slot, s.wb.sheets[s.sheet] || [], true), { fresh: true }); again(); });
+  // i fogli di uno stesso file con la stessa intestazione vanno insieme: una conferma o una scelta vale per tutti
+  const twins = s => (s.sig ? list.filter(x => x.wb === s.wb && x.sig === s.sig) : [s]);
+  $$("[data-ok]", host).forEach(b => b.onclick = () => { twins(list[+b.dataset.ok]).forEach(x => { x.confirmed = true; }); again(); });
+  $$("select[data-k]", host).forEach(el => el.onchange = () => {
+    const s0 = list[+el.dataset.e], all = twins(s0);
+    for (const s of all) {
+      if (el.value === "") delete s.map[el.dataset.k]; else s.map[el.dataset.k] = +el.value;
+      // una scelta fatta a mano vale come conferma; senza intestazione riconosciuta, la prima riga di dati dipende dalle colonne scelte
+      Object.assign(s, { manual: true, memory: false, uncertain: false, confirmed: true });
+      if (slot === "B" && !s.named) { const rows = s.wb.sheets[s.sheet] || []; s.headerRow = dataStart(rows, s.map.code, s.map.giac, knownCodes()) - 1; s.sig = layoutSig(rows, s.headerRow); }
+    }
+    s0.mapOpen = true;
+    again();
+  });
 }
-const slotReady = slot => state.upload[slot].length > 0 && state.upload[slot].every(s => !entryMissing(slot, s).length);
-function updateSave() { const b = $("#save"); if (!b) return; const ok = slotReady("A") && slotReady("B"); b.disabled = !ok; $("#sstat").textContent = ok ? "" : !state.upload.A.length ? "Manca lo storico." : !state.upload.B.length ? "Manca la giacenza." : "Completa le colonne obbligatorie."; }
+const slotReady = slot => state.upload[slot].length > 0 && state.upload[slot].every(s => !entryMissing(slot, s).length && !(slot === "B" && needConfirm(s)));
+function updateSave() {
+  const b = $("#save"); if (!b) return;
+  const ok = slotReady("A") && slotReady("B"), U = state.upload; b.disabled = !ok;
+  $("#sstat").textContent = ok ? "" : !U.A.length ? "Manca lo storico." : !U.B.length ? "Manca la giacenza." : U.B.some(s => !entryMissing("B", s).length && needConfirm(s)) ? "Conferma le colonne del file giacenze." : "Completa le colonne obbligatorie.";
+}
+// Numeri scritti come testo (file CSV, celle di testo): «12,50», «1.250,00». Tutto il resto passa com'è.
+const numCell = v => { if (typeof v !== "string") return v; const n = numVal(v); return Number.isFinite(n) ? n : v; };
 function extract(slot) {
-  const out = [];
+  const out = [], K = slot === "B" ? knownCodes() : null;
   for (const s of state.upload[slot]) {
     const rows = s.wb.sheets[s.sheet], m = s.map, g = (r, k) => m[k] == null ? null : r[m[k]];
     for (let i = s.headerRow + 1; i < rows.length; i++) {
       const r = rows[i] || [], c = g(r, "code"); if (c == null || c === "") continue;
-      out.push(slot === "A" ? [c, g(r, "desc"), g(r, "loc"), g(r, "dg"), g(r, "cost"), g(r, "ord"), g(r, "smin"), g(r, "smax"), g(r, "regolarita"), g(r, "cons_mese"), g(r, "listino"), g(r, "qtaven"), g(r, "venspc"), g(r, "fab")] : [c, g(r, "giac"), g(r, "desc")]);
+      if (slot === "A") out.push([c, g(r, "desc"), g(r, "loc"), g(r, "dg"), numCell(g(r, "cost")), numCell(g(r, "ord")), numCell(g(r, "smin")), numCell(g(r, "smax")), numCell(g(r, "regolarita")), numCell(g(r, "cons_mese")), numCell(g(r, "listino")), numCell(g(r, "qtaven")), numCell(g(r, "venspc")), numCell(g(r, "fab"))]);
+      else {
+        // giacenze: il codice nella forma delle liste movimentazione, la quantità come numero; nient'altro
+        const k = codeKey(c), q = qtyOf(g(r, "giac"));
+        if (k) out.push([toKnown(k, K) || k, Number.isFinite(q) ? q : 0, g(r, "desc")]);
+      }
     }
   }
   return out;
@@ -1495,8 +1770,11 @@ async function save(onDone) {
   const b = $("#save"), st = $("#sstat"), err = $("#uerr"), U = state.upload;
   b.disabled = true; st.textContent = "Incrocio e salvataggio in corso…"; err.hidden = true;
   try {
-    const names = k => U[k].map(s => s.wb.name).join(", ");
-    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: names("B"), rowsA: extract("A"), rowsB: extract("B") });
+    const names = k => [...new Set(U[k].map(s => s.wb.name))].join(", ");
+    // i tracciati usati (intestazione → colonne) vengono ricordati per la concessionaria
+    const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
+    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: names("B"), rowsA: extract("A"), rowsB: extract("B"), layouts });
+    if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
     U.A = []; U.B = [];
     toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}.`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
@@ -1615,8 +1893,20 @@ function generateTarget(o) {
   for (let i = 0; o.stock > 0 && m.stock > 0 && i < 10 && Math.abs(m.stock / o.stock - 1) > .005; i++) { qG = clamp(qG * o.stock / m.stock); weeks = generateData({ ...o, qM, qG }); m = measureData(weeks); }
   return { weeks, ...m };
 }
+/* Tracciati del file giacenze di prova: stessi dati, colonne diverse, per provare il riconoscimento delle colonne.
+   Le colonne in più (impegnato, in arrivo, costo…) hanno valori ricavati dal codice, sempre uguali per lo stesso codice. */
+const TRACCIATI = [["std", "Standard (6 colonne)"], ["altro", "Altro gestionale: nomi e ordine diversi, colonne in più"], ["sigle", "Colonne con sigle (Q1, Q2, Q3): la piattaforma chiede conferma"], ["nohdr", "Solo dati, senza riga di intestazione"]];
+function stockSheet(B, fmt) {
+  const hc = c => { let x = 0; for (const ch of String(c)) x = (x * 31 + ch.charCodeAt(0)) >>> 0; return x; };
+  const imp = x => (x % 5 === 0 ? 1 + x % 3 : 0), arr = x => (x % 7 === 0 ? 1 + x % 4 : 0), costo = x => Math.round((5 + (x % 40000) / 100) * 100) / 100;
+  if (fmt === "nohdr") return B.map(r => [r[0], r[2], r[4]]);
+  if (fmt === "altro") return [["SITUAZIONE DI MAGAZZINO"], ["Magazzino", "Ubicazione", "Denominazione", "Articolo", "UM", "Impegnato", "Esistenza", "In arrivo", "Costo medio", "Ultimo movimento"]]
+    .concat(B.map(r => { const x = hc(r[0]); return ["01", `S${x % 40 + 1}-${(x >>> 6) % 9 + 1}`, r[2], r[0], "PZ", imp(x), r[4], arr(x), costo(x), 46000 + x % 300]; }));
+  if (fmt === "sigle") return [["Mag", "Rif", "Testo", "Q1", "Q2", "Q3", "Val"]].concat(B.map(r => { const x = hc(r[0]); return ["01", r[0], r[2], imp(x), r[4], arr(x), costo(x)]; }));
+  return [G_HDR_B].concat(B);
+}
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", seed: Math.floor(Math.random() * 1e6) });
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtB: "std", seed: Math.floor(Math.random() * 1e6) });
   main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri. I file vengono creati sul tuo computer: nulla viene salvato sulla piattaforma.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid2">
@@ -1630,11 +1920,13 @@ async function viewProva(main) {
       <label class="field" for="gw">Caricamenti<select id="gw">${[1, 2, 4, 6, 8].map(v => `<option value="${v}"${v === P.weeks ? " selected" : ""}>${v === 1 ? "1 (solo i dati più recenti)" : v + " successivi"}</option>`).join("")}</select></label>
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
     </div>
+    <label class="field" for="gfb">Tracciato del file giacenze<select id="gfb">${TRACCIATI.map(([v, l]) => `<option value="${v}"${v === (P.fmtB || "std") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>
   <section class="panel rules"><h3>Come sono fatti i file</h3><ul>
     <li><b>Lista movimentazione</b>: foglio «Liste Movimentazione», riga di titolo e le 16 colonne da DG a Scad, come nei file reali.</li>
     <li><b>Giacenze</b>: foglio «GIACENZA CROSS», con le 6 colonne da Stampanr.RC a GrpOmog.</li>
+    <li><b>Tracciato del file giacenze</b>: gli stessi dati si possono avere in forme diverse, per provare che la piattaforma trova da sola codice e giacenza. «Altro gestionale» ha un titolo, colonne con altri nomi e in altro ordine, più impegnato, in arrivo, costo e data; «sigle» ha nomi che non dicono niente e tre colonne di quantità, quindi la prima volta la piattaforma chiede conferma e poi se ne ricorda; «solo dati» non ha intestazione.</li>
     <li><b>Volumi in euro</b> (facoltativi): il venduto annuo è consumo medio mensile × 12 × prezzo netto di tutti i codici delle liste; il valore a magazzino è giacenza × prezzo netto. La piattaforma adatta le quantità (consumi, SMin, SMax e giacenze) per avvicinarsi agli importi, senza cambiare i prezzi. Con più caricamenti, gli importi valgono per l'ultimo. Lasciati vuoti, i volumi escono da soli in base al numero di codici.</li>
     <li>Codici con il formato dei codici ricambio, circa 40 tipologie (filtri, freni, carrozzeria, elettrico…), prezzi di listino e netti. Circa il 4% dei codici a magazzino non compare nelle liste, come accade nella realtà.</li>
     <li><b>Numeri coerenti tra loro</b>: un quarto dei codici non vende da mesi, gli altri vendono in modo molto diverso, i ricambi economici più di quelli costosi. La regolarità segue il consumo (chi vende 0,3 pezzi al mese sta intorno a 3, chi ne vende 3 o più vicino a 12). Un codice è a scorta solo se la sua regolarità supera una soglia che cresce con il costo: 1,6 sotto 20 €, 2,5 fino a 100 €, 3,3 fino a 500 €, 4,3 oltre. SMin = un mese di consumo (almeno 1 pezzo); SMax = SMin + il lotto di riordino, di 3, 2, 1 o mezzo mese di consumo secondo la stessa fascia. «Venduto» è il numero di pezzi degli ultimi 12 mesi; per i codici che non vendono da mesi c'è la data dell'ultima vendita.</li>
@@ -1645,7 +1937,7 @@ async function viewProva(main) {
     const n = v => Math.round(parseNum(v));
     P.nA = Math.min(60000, Math.max(100, n($("#gna").value))); P.nB = Math.min(60000, Math.max(50, n($("#gnb").value)));
     P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
-    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1;
+    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std";
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
@@ -1657,7 +1949,7 @@ async function viewProva(main) {
         const wa = XLSX.utils.book_new(), sa = XLSX.utils.aoa_to_sheet([["LISTA MOVIMENTAZIONE"], G_HDR_A].concat(weeks[w].A));
         XLSX.utils.book_append_sheet(wa, sa, "Liste Movimentazione");
         zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
-        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([G_HDR_B].concat(weeks[w].B)), "GIACENZA CROSS");
+        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
         zip.file(`${tag}_2_giacenze.xlsx`, XLSX.write(wb, { bookType: "xlsx", type: "array" }));
       }
       st.textContent = "Comprimo i file…";
