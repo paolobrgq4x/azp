@@ -455,13 +455,13 @@ function scenario(items, p) {
       const s3 = dyn ? spreadRisk(E3, left, byReg, R.sellProb / 100) : spread(E3, left, byReg);
       left = s3.left; extra = { level: s3.level, n: s3.n, value: s3.value, full: s3.full, limit: maxCover || null, mode: dyn ? "dyn" : R.overMode };
       if (!dyn) {
-        // per spiegare il livello: i codici che al livello finale ricevono pezzi oltre la SMax, il valore di un loro mese,
-        // i pezzi che avevano già sopra la SMax e quello che va ai codici fermi al tetto
+        // per spiegare il livello: quello che va ai codici arrivati al proprio tetto; per gli altri che possono ancora salire,
+        // quanti sono, quanto vale un loro mese e il valore dei pezzi che avevano già sopra la SMax
         let perMonth = 0, offVal = 0, fixed = 0, nUse = 0;
         for (const e of E3) {
-          const want = s3.level * e.vr - e.off;
-          if (!(e.vr > 0) || !(e.cap > 0) || want <= 0) continue;
-          if (want >= e.cap) fixed += e.cap * e.cost; else { perMonth += e.vr * e.cost; offVal += e.off * e.cost; nUse++; }
+          if (!(e.vr > 0) || !(e.cap > 0) || !(e.cost > 0)) continue;
+          if (e.q >= e.cap) { fixed += e.q * e.cost; continue; }
+          if (s3.level * e.vr - e.off > 0) { perMonth += e.vr * e.cost; offVal += e.off * e.cost; nUse++; }
         }
         Object.assign(extra, { avail, perMonth, offVal, fixed, nUse });
       }
@@ -480,7 +480,7 @@ function scenario(items, p) {
     for (const l of lines.values()) {
       const c = info.get(l.code) || {}, first = l.steps.find(s => s.note === "A zero con fabbisogno" || s.note === "Sotto SMin");
       l.calc = { kind: "amount", reg: l.regolarita, has_reg: hasReg, w: R.regWeight, ce: l.cons_eff, vr: l.vr, smin_qty: first ? first.qty : 0, level: prop.level, p2: c.p2 || null,
-        level3: extra ? extra.level : null, ...(extra && extra.avail != null ? { avail3: extra.avail, pm3: extra.perMonth, off3: extra.offVal, fix3: extra.fixed, n3: extra.nUse } : {}), p3: c.p3 || null, limit: extra ? extra.limit : null,
+        level3: extra ? extra.level : null, ...(extra && extra.avail != null ? { avail3: extra.avail, pm3: extra.perMonth, off3: extra.offVal, fix3: extra.fixed, n3: extra.nUse, val3: extra.value } : {}), p3: c.p3 || null, limit: extra ? extra.limit : null,
         sell: extra && extra.mode === "dyn" ? { months: extra.months, prob: extra.prob } : null, over: extra ? extra.mode : null, w3: extra && extra.w != null ? extra.w : null };
     }
   }
