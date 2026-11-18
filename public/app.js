@@ -408,7 +408,7 @@ function wStep2(body, main) {
   body.innerHTML = `${last ? `<div class="msg${fresh ? "" : " old"}">Ultimo caricamento: ${esc(new Date(last.uploaded_at).toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short", timeZone: "Europe/Rome" }))}${last.uploaded_by_name ? `, da ${esc(last.uploaded_by_name)}` : ""}.${fresh ? "" : " Per un risultato aggiornato conviene caricare le liste e le giacenze più recenti."}
       <div class="row wrow"><button class="btn ${fresh ? "primary" : ""} sm" type="button" id="wuse">Usa questi dati e scegli i codici</button><span class="small muted">oppure carica i file qui sotto</span></div></div>` : ""}
     <section class="step" id="stepA"><span class="num">PASSO 2 DI 5</span><h2>Carica le liste movimentazione</h2>
-      <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se è divisa in più file, aggiungili tutti: vengono uniti.</p>
+      <p class="meta">Lista con codice, movimentazione, SMin, SMax, ordini aperti e prezzi. Se è divisa in più file, aggiungili tutti: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <div class="row"><label class="btn" for="fileA">Scegli i file Excel</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
       <div class="msg err" id="uerr" hidden></div>
@@ -429,7 +429,7 @@ function wireSlot(slot) {
 function wStep3(body, main) {
   const U = state.upload;
   body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
-      <p class="meta">Fotografia del magazzino con codice e quantità disponibile. Con più file, le quantità dello stesso codice si sommano.</p>
+      <p class="meta">Fotografia del magazzino con codice e quantità disponibile. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
@@ -1386,10 +1386,10 @@ async function viewCarica(main) {
   main.innerHTML = `<div class="head"><div><h1>Carica dati</h1><p class="sub">${esc(dealerName(state.dealerId))}. Carica le liste movimentazione e le giacenze più recenti. I file vengono letti sul tuo computer; sulla piattaforma viene salvato solo il risultato dell'incrocio, con data e ora del caricamento.</p></div></div>
   <div class="msg err" id="uerr" hidden></div>
   <section class="grid2">
-    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti.</p>
+    <div class="step" id="stepA"><span class="num">PASSO 1</span><h3>Storico movimentazione</h3><p class="meta">Lista disposizione con codice, SMin, SMax, ordini aperti e costo. Puoi scegliere più file: vengono uniti. Anche i fogli di uno stesso file con le stesse colonne vengono letti tutti e uniti.</p>
       <div id="listA"></div>
       <label class="btn" for="fileA">Aggiungi file storico</label><input type="file" id="fileA" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Codice e quantità disponibile. Con più file, le quantità dello stesso codice si sommano.</p>
+    <div class="step" id="stepB"><span class="num">PASSO 2</span><h3>Giacenza attuale</h3><p class="meta">Codice e quantità disponibile. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
       <div id="listB"></div>
       <label class="btn" for="fileB">Aggiungi file giacenza</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
   </section>
@@ -1411,12 +1411,17 @@ async function handleFiles(slot, files) {
   for (const file of files) {
     try {
       const wb = await readFile(file);
-      let best = null;
-      for (const [name, rows] of Object.entries(wb.sheets)) { const a = analyseSheet(rows, fields); if (!best || a.score > best.score) best = { sheet: name, ...a }; }
-      state.upload[slot].push({ wb, sheet: best.sheet, headerRow: best.headerRow, map: best.map });
+      const all = Object.entries(wb.sheets).map(([name, rows]) => ({ sheet: name, rows, ...analyseSheet(rows, fields) }));
+      const best = all.reduce((x, y) => (y.score > x.score ? y : x));
+      // Fogli con la stessa intestazione del foglio migliore e con dati: si leggono tutti, come se fossero file separati.
+      const sig = a => (a.rows[a.headerRow] || []).map(v => String(v == null ? "" : v).trim().toUpperCase()).join("|");
+      const req = a => fields.every(f => !f.req || a.map[f.key] != null), bestSig = sig(best);
+      const same = all.filter(a => a === best || (req(a) && sig(a) === bestSig && a.rows.length > a.headerRow + 1));
+      for (const a of same) state.upload[slot].push({ wb, sheet: a.sheet, headerRow: a.headerRow, map: a.map });
+      if (same.length > 1) toast(`«${file.name}»: letti ${same.length} fogli con le stesse colonne (${same.map(a => a.sheet).join(", ")}).`);
     } catch (e) { err.hidden = false; err.textContent = e.message; }
   }
-  // I file vengono sempre uniti in ordine alfabetico: lo stesso insieme di file dà lo stesso risultato, in qualsiasi ordine vengano scelti.
+  // I file vengono sempre uniti in ordine alfabetico (i fogli di uno stesso file restano nel loro ordine): lo stesso insieme di file dà lo stesso risultato, in qualsiasi ordine vengano scelti.
   state.upload[slot].sort((x, y) => (x.wb.name < y.wb.name ? -1 : x.wb.name > y.wb.name ? 1 : 0));
   renderSlot(slot); updateSave();
 }
