@@ -23,7 +23,7 @@ const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
 const OVER = [["cons", "Aumento per consumo", "Tutti i codici salgono degli stessi mesi di scorta. Spende tutto l'importo.", "Fai crescere linearmente tutte le giacenze"],
   ["reg", "Aumento per regolarità", "I mesi in più crescono con la regolarità di vendita. Spende tutto l'importo.", "Fai crescere prima i codici che si muovono di più"],
   ["mix", "Aumento misto", "Con la leva decidi quanto contano consumo e regolarità. Spende tutto l'importo.", "Bilancia volumi e codici che si muovono di più"],
-  ["dyn", "Aumento dinamico", "Compra prima i pezzi più probabili da vendere e si ferma sotto la probabilità minima: il resto non si spende.", "Quanto posso comprare senza rischiare che resti fermo?"]];
+  ["dyn", "Aumento dinamico", "Compra prima i pezzi più probabili da vendere e si ferma sotto la probabilità minima: il resto non si spende.", "Acquista in base alle probabilità di vendita"]];
 const OVER_W = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 // Leva dell'aumento misto: a sinistra il consumo, a destra la regolarità. Il valore salvato è il peso della regolarità (overWeight).
 const levTxt = w => `${fmtN(100 - w)}% consumo · ${fmtN(w)}% regolarità`;
