@@ -300,8 +300,9 @@ async function handleFiles(slot, files) {
   if (!files.length) return; const err = $("#uerr"); err.hidden = true;
   const fields = slot === "A" ? FIELDS_A : FIELDS_B;
   await loadLayouts();
-  for (const file of files) {
+  for (const [fi, file] of files.entries()) {
     try {
+      busy(`Lettura di «${file.name}»${files.length > 1 ? ` (${fi + 1} di ${files.length})` : ""}…`, files.length > 1 ? fi / files.length : null); await tick();
       const wb = await readFile(file);
       const all = Object.entries(wb.sheets).map(([name, rows]) => ({ sheet: name, rows, ...analyse(slot, rows) }));
       const best = all.reduce((x, y) => (y.score > x.score ? y : x));
@@ -318,6 +319,7 @@ async function handleFiles(slot, files) {
       if (same.length > 1) toast(`«${file.name}»: letti ${same.length} fogli con le stesse colonne (${same.map(a => a.sheet).join(", ")}).`);
     } catch (e) { err.hidden = false; err.textContent = e.message; }
   }
+  busy(null);
   // I file vengono sempre uniti in ordine alfabetico (i fogli di uno stesso file restano nel loro ordine): lo stesso insieme di file dà lo stesso risultato, in qualsiasi ordine vengano scelti.
   state.upload[slot].sort((x, y) => (x.wb.name < y.wb.name ? -1 : x.wb.name > y.wb.name ? 1 : 0));
   renderSlot(slot); updateSave();
@@ -522,22 +524,28 @@ function extract(slot) {
 }
 async function save(onDone) {
   const b = $("#save"), st = $("#sstat"), err = $("#uerr"), U = state.upload;
-  b.disabled = true; st.textContent = "Incrocio e salvataggio in corso…"; err.hidden = true;
+  b.disabled = true; st.textContent = "Salvataggio in corso…"; err.hidden = true;
   try {
+    busy("Preparo i dati dei file…"); await tick();
     const names = k => [...new Set(U[k].map(s => s.wb.name))].join(", ");
     // i tracciati usati (intestazione → colonne) vengono ricordati per la concessionaria
     const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
     // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
     const useB = U.B.length > 0, LS = listStock();
-    const r = await api("POST", "/api/snapshots", { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
-      missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts });
+    const body = { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
+      missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts };
+    busy("Invio dei dati: 0%", 0);
+    const r = await apiUpload("/api/snapshots", body, q => busy(`Invio dei dati: ${Math.round(q * 100)}%`, q * 0.6), () => busy("Incrocio delle liste con le giacenze e salvataggio…"));
+    busy("Aggiornamento dello storico…");
     if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
     U.A = []; U.B = []; U.miss = null; U.missKey = null;
     toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.${r.perim_n ? ` Perimetro della rete: ${fmtN(r.n_out)} codici dei file sono rimasti fuori.` : ""}`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
+    busy(null);
     if (onDone) return onDone(r);
     go("analisi");
   } catch (e) {
+    busy(null);
     if (e.silent) return;
     err.hidden = false; err.textContent = e.message; st.textContent = ""; b.disabled = false;
   }

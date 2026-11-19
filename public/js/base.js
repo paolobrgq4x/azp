@@ -34,11 +34,42 @@ function refDate(label) {
 }
 function toast(msg) { const t = $("#toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("show"), 2600); }
 
+/* ============ Attese: barra in alto per ogni richiesta lenta, riquadro con messaggio e avanzamento per le operazioni lunghe ============ */
+let PENDING = 0, BARTIMER = null;
+function netStart() { if (PENDING++ === 0) BARTIMER = setTimeout(() => document.body.classList.add("loading"), 250); }
+function netEnd() { if (--PENDING <= 0) { PENDING = 0; clearTimeout(BARTIMER); document.body.classList.remove("loading"); } }
+// busy("testo") mostra il riquadro; busy("testo", 0.4) con la barra al 40%; busy(null) lo toglie.
+function busy(text, pct) {
+  let el = $("#busy");
+  if (text == null) { if (el) el.remove(); return; }
+  if (!el) { el = document.createElement("div"); el.id = "busy"; el.setAttribute("role", "status"); el.setAttribute("aria-live", "polite"); document.body.appendChild(el); }
+  el.innerHTML = `<div class="busyrow"><span class="spin" aria-hidden="true"></span><span>${esc(text)}</span></div>${pct == null ? `<div class="pbar ind"><i></i></div>` : `<div class="pbar"><i style="width:${Math.round(Math.max(0, Math.min(1, pct)) * 100)}%"></i></div>`}`;
+}
+// Lascia al browser il tempo di mostrare un messaggio prima di un calcolo pesante.
+const tick = () => new Promise(r => setTimeout(r, 30));
+function apiError(status, data) {
+  if (status === 401) { state.me = null; renderLogin("La sessione è scaduta: accedi di nuovo."); return Object.assign(new Error("Sessione scaduta"), { status: 401, silent: true }); }
+  return Object.assign(new Error((data && data.error) || "Errore " + status), { status, data });
+}
+// Invio di dati grandi con l'avanzamento dell'invio (onUp riceve la quota inviata, da 0 a 1; onSent quando l'invio è finito).
+function apiUpload(url, body, onUp, onSent) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest(); x.open("POST", url); x.withCredentials = true;
+    x.setRequestHeader("X-Req", "1"); x.setRequestHeader("Content-Type", "application/json");
+    x.upload.onprogress = e => { if (e.lengthComputable && onUp) onUp(e.loaded / e.total); };
+    x.upload.onload = () => { if (onSent) onSent(); };
+    x.onload = () => { netEnd(); let d = null; try { d = JSON.parse(x.responseText); } catch (e) {} if (x.status >= 200 && x.status < 300) resolve(d); else reject(apiError(x.status, d)); };
+    x.onerror = () => { netEnd(); reject(Object.assign(new Error("Connessione non riuscita. Controlla la rete e riprova."), { status: 0 })); };
+    netStart(); x.send(JSON.stringify(body));
+  });
+}
 async function api(method, url, body) {
   const opt = { method, headers: { "X-Req": "1" }, credentials: "same-origin" };
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   let res;
-  try { res = await fetch(url, opt); } catch (e) { throw Object.assign(new Error("Connessione non riuscita. Controlla la rete e riprova."), { status: 0 }); }
+  netStart();
+  try { res = await fetch(url, opt); } catch (e) { netEnd(); throw Object.assign(new Error("Connessione non riuscita. Controlla la rete e riprova."), { status: 0 }); }
+  netEnd();
   let data = null; try { data = await res.json(); } catch (e) {}
   if (res.status === 401 && url !== "/api/login") { state.me = null; renderLogin("La sessione è scaduta: accedi di nuovo."); throw Object.assign(new Error("Sessione scaduta"), { status: 401, silent: true }); }
   if (!res.ok) throw Object.assign(new Error((data && data.error) || "Errore " + res.status), { status: res.status, data });
@@ -179,7 +210,7 @@ function shell(view) {
   const dsel = isAdmin()
     ? `<select id="dsel" aria-label="Concessionaria"><option value="">Scegli concessionaria…</option>${state.dealers.map(d => `<option value="${d.id}"${d.id === state.dealerId ? " selected" : ""}>${esc(d.name)}${d.code ? " · " + esc(d.code) : ""}</option>`).join("")}</select>`
     : `<span class="who">${esc(u.dealer_name || "")}</span>`;
-  $("#root").innerHTML = `<header class="topbar"><div class="brand">PartsPlanner</div>${dsel}
+  $("#root").innerHTML = `<header class="topbar"><a class="brand" href="/" title="Torna alla pagina iniziale">PartsPlanner</a>${dsel}
     <span class="who">${esc(u.full_name || u.username)}</span><button class="link" type="button" id="pwd">Password</button><button class="link" type="button" id="out">Esci</button></header>
     <nav class="tabs" aria-label="Sezioni">${VIEWS.filter(v => !v.hidden && (!v.admin || isAdmin())).map(v => `<a href="/${v.id}"${v.id === view ? ' aria-current="page"' : ""}>${v.label}</a>`).join("")}</nav>
     <main id="main"></main>`;
@@ -226,6 +257,8 @@ window.addEventListener("popstate", route);
 document.addEventListener("click", e => {
   const a = e.target.closest && e.target.closest("a[href]");
   if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target || a.hasAttribute("download")) return;
+  // il nome PartsPlanner porta alla pagina iniziale: la rete per l'amministratore, il nuovo ordine (dal primo passo) per gli altri
+  if (a.getAttribute("href") === "/") { e.preventDefault(); const home = isAdmin() ? "rete" : "nuovo"; if (home === "nuovo" && typeof W !== "undefined") W.step = 1; go(home); return; }
   const m = a.getAttribute("href").match(/^[#/]([a-z]+)$/);
   if (m && VIEWS.some(v => v.id === m[1])) { e.preventDefault(); go(m[1]); }
 });

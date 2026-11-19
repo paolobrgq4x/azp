@@ -119,7 +119,8 @@ function wStep3(body, main) {
 }
 async function wLookup() {
   if (!W.codes.length) { W.lookup = { rows: [], missing: [] }; return; }
-  W.lookup = await api("POST", `/api/snapshots/${W.snapId}/lookup`, { codes: W.codes });
+  busy(`Ricerca di ${W.codes.length === 1 ? "1 codice" : fmtN(W.codes.length) + " codici"} nel caricamento…`);
+  try { W.lookup = await api("POST", `/api/snapshots/${W.snapId}/lookup`, { codes: W.codes }); } finally { busy(null); }
 }
 async function wStep4(body, main) {
   if (!W.snapId) W.snapId = state.snapshots[state.snapshots.length - 1].id;
@@ -195,7 +196,7 @@ async function wCompute() {
   return true;
 }
 async function wStep5(body, main) {
-  body.innerHTML = `<div class="panel"><p class="muted">Calcolo in corso…</p></div>`;
+  body.innerHTML = `<div class="panel waitbox"><div class="busyrow"><span class="spin" aria-hidden="true"></span><span>Calcolo della proposta su ${W.codesMode === "all" ? "tutti i codici" : "i codici scelti"}…</span></div><div class="pbar ind"><i></i></div></div>`;
   await wCompute();
   body.innerHTML = `<div class="wnav top"><span class="num mono small muted">PASSO 5 DI 5 · RISULTATO</span><div class="row">
       <button class="btn sm" type="button" id="wgoal">Cambia obiettivo</button><button class="btn sm" type="button" id="wcodes">Cambia codici</button><button class="btn sm" type="button" id="wnew">Ricomincia</button></div></div>
