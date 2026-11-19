@@ -19,11 +19,11 @@ const oltreTxt = m => `${m === 1 ? "1 mese" : fmtN(m) + " mesi"} oltre la SMax`;
  *  mix  aumento misto: come per regolarità, con il peso della regolarità scelto da chi ordina (0% = per consumo, 100% = per regolarità)
  *  dyn  aumento dinamico: per ogni pezzo in più si stima la probabilità di venderlo entro i mesi scelti; si comprano i pezzi
  *       dal più probabile da vendere al meno probabile, finché dura l'importo e finché la probabilità resta sopra la probabilità minima di vendita */
-// Ogni modo: valore, nome, descrizione breve, domanda a cui risponde
-const OVER = [["cons", "Aumento per consumo", "Tutti i codici salgono degli stessi mesi di scorta. Spende tutto l'importo.", "Fai crescere linearmente tutte le giacenze"],
-  ["reg", "Aumento per regolarità", "I mesi in più crescono con la regolarità di vendita. Spende tutto l'importo.", "Fai crescere prima i codici che si muovono di più"],
-  ["mix", "Aumento misto", "Con la leva decidi quanto contano consumo e regolarità. Spende tutto l'importo.", "Bilancia volumi e codici che si muovono di più"],
-  ["dyn", "Aumento dinamico", "Compra prima i pezzi più probabili da vendere e si ferma sotto la probabilità minima: il resto non si spende.", "Pianifica in base alle probabilità di vendita"]];
+// Ogni modo: valore, nome, descrizione breve, frase in evidenza, se spende tutto l'importo
+const OVER = [["cons", "Aumento per consumo", "Tutti i codici salgono degli stessi mesi di scorta.", "Fai crescere linearmente tutte le giacenze", true],
+  ["reg", "Aumento per regolarità", "I mesi in più crescono con la regolarità di vendita.", "Fai crescere prima i codici che si muovono di più", true],
+  ["mix", "Aumento misto", "Con la leva decidi quanto contano consumo e regolarità.", "Bilancia volumi e codici che si muovono di più", true],
+  ["dyn", "Aumento dinamico", "Prima i pezzi più probabili da vendere; si ferma quando la probabilità scende sotto la minima.", "Pianifica in base alle probabilità di vendita", false]];
 const OVER_W = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 // Leva dell'aumento misto: a sinistra il consumo, a destra la regolarità. Il valore salvato è il peso della regolarità (overWeight).
 const levTxt = w => `${fmtN(100 - w)}% consumo · ${fmtN(w)}% regolarità`;

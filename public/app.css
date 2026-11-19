@@ -426,3 +426,6 @@ body.loading::before{content:"";position:fixed;top:0;left:0;right:0;height:3px;z
 .waitbox{padding:18px 20px}
 a.brand{color:inherit;text-decoration:none}
 @media (prefers-reduced-motion: reduce){.spin,.pbar.ind i,body.loading::before{animation-duration:3s}}
+.choices.over .spend{display:inline-block;align-self:flex-start;margin-top:4px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.choices.over .spend.si{background:var(--good-soft,#ecfdf5);color:var(--good)}
+.choices.over .spend.no{background:var(--warn-soft);color:var(--warn)}

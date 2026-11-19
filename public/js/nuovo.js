@@ -52,9 +52,12 @@ function wStep1(body, main) {
 }
 /* Campi per l'importo libero: come salire oltre la SMax (quattro modi), il peso del misto, i due parametri del dinamico e il tetto per codice.
  * «x» è il prefisso degli id: «p» nella procedura guidata, «o» nella pagina degli scenari. */
+// Se il modo spende tutto l'importo: i primi tre sì, a meno di un tetto per codice; il dinamico può lasciarne una parte.
+const spendTag = (all, cap) => all && !cap ? `<span class="spend si">✓ Spende tutto l'importo</span>`
+  : `<span class="spend no">${all ? "Con il tetto per codice può lasciare una parte dell'importo non spesa" : "Può lasciare una parte dell'importo non spesa"}</span>`;
 function overFields(x) {
   const r = rules(), om = overMode(r), dyn = om === "dyn", opt = (list, cur, f) => list.map(v => `<option value="${v}"${v === cur ? " selected" : ""}>${f(v)}</option>`).join("");
-  return `<fieldset class="overset"><legend>Come salire oltre la SMax</legend><div class="choices over">${OVER.map(([v, l, d, q]) => `<label class="choice${v === om ? " on" : ""}" for="${x}om_${v}"><input type="radio" name="${x}om" id="${x}om_${v}" value="${v}"${v === om ? " checked" : ""}><span><span class="q">${q}</span><b>${l}</b><span class="small muted">${d}</span>${v === "dyn" ? `<a class="small" href="/probabilita" target="_blank" rel="noopener">Come si calcola la probabilità</a>` : ""}</span></label>`).join("")}</div></fieldset>
+  return `<fieldset class="overset"><legend>Come salire oltre la SMax</legend><div class="choices over">${OVER.map(([v, l, d, q, all]) => `<label class="choice${v === om ? " on" : ""}" for="${x}om_${v}"><input type="radio" name="${x}om" id="${x}om_${v}" value="${v}"${v === om ? " checked" : ""}><span><span class="q">${q}</span><b>${l}</b><span class="small muted">${d}</span>${spendTag(all, r.maxCover)}${v === "dyn" ? `<a class="small" href="/probabilita" target="_blank" rel="noopener">Come si calcola la probabilità</a>` : ""}</span></label>`).join("")}</div></fieldset>
     ${om === "mix" ? leverHtml(x + "ow", r.overWeight) : ""}
     ${dyn ? `<label class="field" for="${x}sm">Rivendere i pezzi in più entro<select id="${x}sm">${opt(SELL_MONTHS, r.sellMonths, mm)}</select></label>
     <label class="field" for="${x}sp">Probabilità minima di vendita<select id="${x}sp">${opt(SELL_PROB, r.sellProb, v => v + "%")}</select></label>` : ""}
@@ -74,7 +77,7 @@ function overRead(x) {
 // ogni scelta si salva subito; cambiando il modo i campi si ridisegnano (i due parametri servono solo al dinamico)
 function overBind(x, redraw) {
   $$(`input[name=${x}om]`).forEach(el => el.onchange = () => { overRead(x); saveRules(); redraw(); });
-  ["sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); }; });
+  ["sm", "sp", "mc"].forEach(id => { const el = $("#" + x + id); if (el) el.onchange = () => { overRead(x); saveRules(); if (id === "mc") OVER.forEach(([v, , , , all]) => { const t = $(`label[for=${x}om_${v}] .spend`); if (t) t.outerHTML = spendTag(all, rules().maxCover); }); }; });
   leverBind($("#" + x + "ow"), () => { overRead(x); saveRules(); });
 }
 function wStep2(body, main) {
