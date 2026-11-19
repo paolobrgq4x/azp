@@ -1,12 +1,13 @@
 # PartsPlanner
 
-Piattaforma di pianificazione ricambi (nata come «Incrocio giacenze ricambi»).
+Piattaforma web per pianificare il riordino dei ricambi di una concessionaria. Parte dalle **liste movimentazione** mensili (con le giacenze a fine mese, correggibili a mano), classifica ogni codice (sotto scorta, eccesso, fermo, in linea), propone un ordine spiegando ogni quantità e conserva i caricamenti precedenti per seguirne l'evoluzione.
 
-Piattaforma web che incrocia lo **storico movimentazione** (lista disposizione) e la **giacenza attuale** di una concessionaria, classifica ogni codice (sotto scorta, eccesso, fermo, in linea) e conserva i caricamenti precedenti per seguirne l'evoluzione.
+Prototipo dimostrativo: i dati presenti sono interamente fittizi, prodotti dal generatore «Dati di prova».
 
 ## Come funziona
 
-- Il responsabile di magazzino entra con utente e password e carica le liste movimentazione e le giacenze più recenti. Non sceglie una data: la piattaforma registra giorno e ora del caricamento e lavora sull'ultimo.
+- Il responsabile di magazzino entra con utente e password, sceglie l'obiettivo, carica le liste movimentazione, conferma o corregge le giacenze, sceglie i codici e ottiene la proposta da confermare riga per riga ed esportare in Excel o PDF. Non sceglie una data: la piattaforma registra giorno e ora del caricamento e lavora sull'ultimo.
+- La piattaforma non invia ordini e non è collegata ad altri sistemi.
 - I file vengono letti **nel browser**: al server arriva solo l'elenco dei codici con le colonne necessarie. L'incrocio viene calcolato sul server e salvato nel database.
 - Ogni concessionaria vede solo i propri dati. L'amministratore vede la rete intera, crea concessionarie e utenti.
 - La pagina non carica risorse esterne (Content Security Policy `default-src 'self'`).
@@ -16,10 +17,9 @@ Piattaforma web che incrocia lo **storico movimentazione** (lista disposizione) 
 | Stato | Regola |
 |---|---|
 | Sotto scorta | giacenza + ordini aperti < SMin. Da ordinare = SMax − disponibile |
-| Eccesso | giacenza > SMax. Eccedenza = giacenza − SMax, al costo Sco STK |
+| Eccesso | giacenza > SMax. Eccedenza = giacenza − SMax, al costo netto |
 | Fermo | giacenza > 0 con SMin = SMax = 0 |
-| Non in giacenza | codice dello storico assente nel file giacenze |
-| Senza storico | codice con giacenza che non compare nello storico |
+| Non in giacenza | codice delle liste senza giacenza |
 
 "Caricamenti nello stato" conta i caricamenti consecutivi in cui il codice è rimasto nello stesso stato.
 
@@ -63,15 +63,13 @@ L'amministratore può caricare, in «Amministrazione», un Excel con un elenco d
 
 ## Quali giacenze si usano
 
-Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la situazione al momento dell'estrazione.
-
-- **Giacenze delle liste** — i calcoli partono dalla giacenza riportata dalle liste (fine mese precedente).
-- **Correzioni a mano** — al passo 3 di «Nuovo ordine» l'utente vede la giacenza di ogni codice e corregge quelle cambiate dopo la chiusura del mese; per quei codici vale la giacenza corretta (fonte «manuale»), per gli altri quella delle liste. La giacenza delle liste resta salvata accanto.
+- **Giacenze delle liste** — i calcoli partono dalla giacenza che le liste riportano per ogni codice, alla fine del mese precedente.
+- **Correzioni a mano** — al passo 3 di «Nuovo ordine» l'utente vede la giacenza di ogni codice e corregge quelle cambiate dopo la chiusura del mese; per quei codici vale la giacenza corretta (`stock_src = manuale`), per gli altri quella delle liste. La giacenza delle liste resta salvata accanto (`giac_lista`).
 - **Liste senza giacenze** (colonna assente o vuota) — ogni codice parte da zero; le giacenze si scrivono a mano al passo 3.
 
-Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`: `lista`, `file`, `file_lista`) e, se è scritta nell'intestazione della colonna, la data a cui si riferiscono quelle delle liste (`stock_ref`); per ogni codice resta anche la giacenza riportata dalla lista (`giac_lista`). L'origine è scritta in ogni pagina, nell'Excel e nel PDF.
+Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`) e, se è scritta nell'intestazione della colonna, la data a cui si riferiscono (`stock_ref`). L'origine è scritta in ogni pagina, nell'Excel e nel PDF. I valori `file` e `file_lista` restano per i caricamenti fatti con il vecchio file giacenze.
 
-Limite da conoscere: gli ordini aperti sono sempre quelli delle liste. Un ordine arrivato dopo la data delle liste è già nella giacenza del file e conta ancora come ordine aperto: per quel codice la proposta può risultare più bassa del necessario.
+Limite da conoscere: gli ordini aperti sono sempre quelli delle liste. Se la giacenza corretta a mano comprende pezzi di un ordine arrivato dopo la chiusura delle liste, quei pezzi contano due volte e la proposta per quel codice può risultare più bassa del necessario.
 
 ## Tracciato «Export» mensile delle liste
 
@@ -79,19 +77,8 @@ Oltre alla lista disposizione (riga di titolo, «Codice particolare», «Ord. Ap
 
 - **Data delle giacenze** — «Annomese» (es. 2026/10) indica il mese: le giacenze sono quelle all'ultimo giorno (31/10/2026).
 - **Più mesi nello stesso file** — vale solo il mese più recente; le righe dei mesi precedenti sono ignorate e la pagina lo dice.
-- **Ordini aperti** — l'export non li riporta: contano zero, e la pagina lo segnala prima di salvare.
+- **Ordini aperti** — l'export non li riporta: contano zero, e la pagina lo segnala.
 - «Particolare» da solo è il codice; «Particolare Desc», «Particolare Sostituente» e «Particolare Codice Merceologico» no.
-
-## File delle giacenze: qualsiasi tracciato
-
-Ogni utente può estrarre le giacenze dal proprio gestionale in una forma diversa. Del file servono solo due colonne, il **codice** e la **quantità in giacenza** (più la descrizione, se c'è): tutte le altre vengono ignorate. Le colonne si riconoscono così, nell'ordine:
-
-1. **Tracciato già confermato** — se un file con la stessa intestazione è già stato caricato per la concessionaria con colonne diverse da quelle che la piattaforma sceglierebbe da sola, o dopo una conferma, valgono le colonne usate allora (tabella `layouts`).
-2. **Liste movimentazione** — il codice è la colonna i cui valori si ritrovano tra i codici delle liste scelte, anche se scritti con punti, trattini o spazi.
-3. **Nome della colonna** — un elenco di nomi possibili, con le parole che escludono («giacenza minima» non è la giacenza).
-4. **Contenuto** — codici senza ripetizioni; quantità intere non negative, scartando contatori di riga, date, prezzi e codici numerici.
-
-La pagina mostra sempre le colonne scelte, le prime righe lette e quanti codici si ritrovano nelle liste. Se la scelta non è sicura (più colonne plausibili, o quasi nessun codice in comune con le liste) chiede una conferma prima di salvare; le colonne si possono sempre cambiare a mano. Funziona anche con file senza riga di intestazione e con file CSV all'italiana (punto e virgola, virgola decimale): nei CSV i valori vengono letti come sono scritti, così «3,00» resta 3 e i codici non perdono gli zeri iniziali.
 
 «Dati di prova» genera solo liste movimentazione, con le giacenze a fine mese, nel tracciato Export mensile o Lista disposizione.
 
@@ -106,7 +93,9 @@ La pagina mostra sempre le colonne scelte, le prime righe lette e quanti codici 
   - ogni sezione ha il suo indirizzo (`/nuovo`, `/analisi`, `/regole`…): il server risponde sempre con la stessa pagina, che mostra la sezione giusta; i vecchi indirizzi con il cancelletto (`/#nuovo`) portano allo stesso posto
   - `js/base.js` — funzioni comuni, accesso, menu e navigazione
   - `js/regole.js` — scenari, modi oltre la SMax, spiegazioni dei calcoli
-  - `js/nuovo.js` — percorso guidato del nuovo caricamento
+  - `js/nuovo.js` — procedura guidata «Nuovo ordine» (obiettivo, liste, giacenze, codici, risultato)
+  - `js/come-funziona.js` — pagina delle istruzioni
+  - `js/probabilita.js` — spiegazione del calcolo della probabilità di vendita
   - `js/andamento.js` — rete e analisi codici
   - `js/ordine.js` — scenari d'ordine, conferma ed esportazioni Excel/PDF
   - `js/indicatori.js` — scheda codice
