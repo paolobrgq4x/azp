@@ -2,11 +2,11 @@
 /* PartsPlanner · generatore di dati di prova */
 
 /* ============ Generatore di dati di prova ============
- * Crea liste movimentazione e giacenze fittizie con la stessa struttura dei file reali,
+ * Crea liste movimentazione fittizie, con le giacenze a fine mese, con la stessa struttura dei file reali,
  * per uno o più caricamenti successivi che evolvono nel tempo. Tutto avviene nel browser: nulla viene salvato.
  */
 function rng(seed) { let a = seed >>> 0; return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
-// Codici di prova: 8 cifre, la quarta è il gruppo principale (da 0 a 9).
+// Codici di prova: 10 cifre, la quarta è il gruppo principale (da 0 a 9).
 // [gruppo, descrizione, listino minimo, listino massimo]
 const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], ["8", "PARAURTI POST.", 270, 610], ["6", "PASTIGLIE FRENO", 48, 160], ["6", "DISCO FRENO", 55, 240],
   ["6", "PINZA FRENO", 160, 520], ["1", "FILTRO OLIO", 9, 28], ["1", "FILTRO ARIA", 18, 55], ["8", "FILTRO ABITACOLO", 16, 48], ["2", "FILTRO CARB.", 24, 90],
@@ -18,7 +18,6 @@ const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], [
   ["8", "PANNELLO PORTA", 160, 480], ["1", "SUPPORTO MOTORE", 60, 220], ["1", "TURBOCOMPRESSORE", 950, 2400], ["3", "KIT FRIZIONE", 260, 720], ["0", "BULLONE", 1, 9],
   ["7", "LEVA FRENO MANO", 35, 140], ["7", "PEDALIERA", 60, 210], ["3", "SUPPORTO CAMBIO", 45, 160], ["0", "VERNICE RITOCCO", 12, 38], ["5", "MOZZO POST.", 70, 230]];
 const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giac Cross Aggiornate al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
-const G_HDR_B = ["Stampanr.RC", "Gr.M.", "Descrizione", "Tipomerce", "G.dispo.", "GrpOmog."];
 // Intestazione delle liste di prova: se riportano le giacenze, la colonna dice a che data (la fine del mese scorso).
 const G_COL_GIAC = 8;
 const monthEnd = () => { const d = new Date(), e = new Date(d.getFullYear(), d.getMonth(), 0); return `${String(e.getDate()).padStart(2, "0")}/${String(e.getMonth() + 1).padStart(2, "0")}/${e.getFullYear()}`; };
@@ -29,7 +28,7 @@ const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMo
 const hcode = c => { let h = 0; for (const ch of String(c)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
 const FAM = ["RCP", "RCO", "KDA", "KAB", "ECA", "KGA", "NNA", "KDT"], GVS = ["1", "2", "3", "3", "5A", "5C"];
 /* Forma dei dati nell'export: codici di 10 cifre, senza lettere, con il gruppo omogeneo nella quarta cifra; DG di quattro caratteri,
- * locazioni come A01HJ. Liste e file giacenze usano gli stessi codici. */
+ * locazioni come A01HJ. */
 const X_MERC = ["01 - RICAMBI", "01 - RICAMBI", "01 - RICAMBI", "02 - RICAMBI", "03 - RICAMBI", "03 - RICAMBI", "04 - RICAMBI", "06 - RICAMBI", "08 - RICAMBI"];
 const xDG = dg => { const h = hcode(dg); return "H" + "MNPRSZ"[h % 6] + ((h >>> 3) % 3 === 0 ? "ZZ" : String((h >>> 5) % 40 + 1).padStart(2, "0")); };
 const xLoc = loc => { if (!loc) return null; const h = hcode(loc), L = "ABCDEFGHJ", A = "ABCDEFGHIJKLMNPRS0123456789"; return `${"AB"[h % 2]}${String((h >>> 1) % 20 + 1).padStart(2, "0")}${L[(h >>> 6) % L.length]}${A[(h >>> 10) % A.length]}`; };
@@ -123,12 +122,11 @@ function generateData(o) {
   }
   return weeks;
 }
-// Valori dell'ultimo caricamento generato: venduto annuo delle liste (consumo × 12 × costo) e valore delle giacenze al costo.
+// Valori dell'ultimo caricamento generato: venduto annuo delle liste (consumo × 12 × costo) e valore al costo delle giacenze riportate dalle liste.
 function measureData(weeks) {
-  const w = weeks[weeks.length - 1], cost = new Map(w.A.map(x => [x[1], x[5]]));
+  const w = weeks[weeks.length - 1];
   let mov = 0, stock = 0;
-  for (const x of w.A) mov += (x[12] || 0) * 12 * x[5];
-  for (const x of w.B) stock += (x[4] || 0) * (cost.get(x[0]) || 0);
+  for (const x of w.A) { mov += (x[12] || 0) * 12 * x[5]; stock += (x[G_COL_GIAC] || 0) * x[5]; }
   return { mov, stock };
 }
 // Genera i dati e, se indicati, avvicina venduto annuo e valore delle giacenze agli importi voluti.
@@ -139,27 +137,14 @@ function generateTarget(o) {
   for (let i = 0; o.stock > 0 && m.stock > 0 && i < 10 && Math.abs(m.stock / o.stock - 1) > .005; i++) { qG = clamp(qG * o.stock / m.stock); weeks = generateData({ ...o, qM, qG }); m = measureData(weeks); }
   return { weeks, ...m };
 }
-/* Tracciati del file giacenze di prova: stessi dati, colonne diverse, per provare il riconoscimento delle colonne.
-   Le colonne in più (impegnato, in arrivo, costo…) hanno valori ricavati dal codice, sempre uguali per lo stesso codice. */
-const TRACCIATI = [["std", "Standard (6 colonne)"], ["altro", "Altro gestionale: nomi e ordine diversi, colonne in più"], ["sigle", "Colonne con sigle (Q1, Q2, Q3): la piattaforma chiede conferma"], ["nohdr", "Solo dati, senza riga di intestazione"]];
-function stockSheet(B, fmt) {
-  const hc = c => { let x = 0; for (const ch of String(c)) x = (x * 31 + ch.charCodeAt(0)) >>> 0; return x; };
-  const imp = x => (x % 5 === 0 ? 1 + x % 3 : 0), arr = x => (x % 7 === 0 ? 1 + x % 4 : 0), costo = x => Math.round((5 + (x % 40000) / 100) * 100) / 100;
-  if (fmt === "nohdr") return B.map(r => [r[0], r[2], r[4]]);
-  if (fmt === "altro") return [["SITUAZIONE DI MAGAZZINO"], ["Magazzino", "Ubicazione", "Denominazione", "Articolo", "UM", "Impegnato", "Esistenza", "In arrivo", "Costo medio", "Ultimo movimento"]]
-    .concat(B.map(r => { const x = hc(r[0]); return ["01", `S${x % 40 + 1}-${(x >>> 6) % 9 + 1}`, r[2], r[0], "PZ", imp(x), r[4], arr(x), costo(x), 46000 + x % 300]; }));
-  if (fmt === "sigle") return [["Mag", "Rif", "Testo", "Q1", "Q2", "Q3", "Val"]].concat(B.map(r => { const x = hc(r[0]); return ["01", r[0], r[2], imp(x), r[4], arr(x), costo(x)]; }));
-  return [G_HDR_B].concat(B);
-}
 async function viewProva(main) {
-  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtA: "export", fmtB: "std", listStock: true, seed: Math.floor(Math.random() * 1e6) });
-  main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione e giacenze fittizie, con la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri.</p></div></div>
+  const P = state.prova || (state.prova = { nA: 15000, nB: 13000, mov: 0, stock: 0, weeks: 1, profile: "equilibrato", fmtA: "export", listStock: true, seed: Math.floor(Math.random() * 1e6) });
+  main.innerHTML = `<div class="head"><div><h1>Dati di prova</h1><p class="sub">Genera liste movimentazione fittizie, con le giacenze a fine mese e la stessa struttura dei file reali, per provare la piattaforma senza usare dati veri.</p></div></div>
   <form class="panel" id="gf" novalidate>
     <div class="grid2">
       <label class="field" for="gna">Liste movimentazione: numero di codici<input type="text" id="gna" inputmode="numeric" value="${esc(fmtN(P.nA))}"></label>
       <label class="field" for="gmv">Liste movimentazione: volume in euro (venduto annuo al netto)<input type="text" id="gmv" inputmode="decimal" placeholder="automatico" value="${P.mov ? esc(fmtN(P.mov)) : ""}"></label>
-      <label class="field" for="gnb">Giacenze: numero di codici<input type="text" id="gnb" inputmode="numeric" value="${esc(fmtN(P.nB))}"></label>
-      <label class="field" for="gst">Giacenze: volume in euro (valore a magazzino al netto)<input type="text" id="gst" inputmode="decimal" placeholder="automatico" value="${P.stock ? esc(fmtN(P.stock)) : ""}"></label>
+      <label class="field" for="gst">Giacenze: volume in euro (valore a magazzino al netto, a fine mese)<input type="text" id="gst" inputmode="decimal" placeholder="automatico" value="${P.stock ? esc(fmtN(P.stock)) : ""}"></label>
     </div>
     <div class="grid3">
       <label class="field" for="gpr">Situazione del magazzino<select id="gpr">${[["equilibrato", "Equilibrata"], ["alto", "Magazzino alto (molti eccessi)"], ["scarico", "Magazzino scarico (molti sotto scorta)"]].map(([v, l]) => `<option value="${v}"${v === P.profile ? " selected" : ""}>${l}</option>`).join("")}</select></label>
@@ -167,20 +152,16 @@ async function viewProva(main) {
       <label class="field" for="gseed">Seme (stessi numeri = stessi dati)<input type="text" id="gseed" inputmode="numeric" value="${P.seed}"></label>
     </div>
     <label class="field" for="gfa">Tracciato delle liste movimentazione<select id="gfa">${TRACCIATI_A.map(([v, l]) => `<option value="${v}"${v === (P.fmtA || "export") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-    <label class="field" for="gfb">Tracciato del file giacenze<select id="gfb">${TRACCIATI.map(([v, l]) => `<option value="${v}"${v === (P.fmtB || "std") ? " selected" : ""}>${l}</option>`).join("")}</select></label>
-    <label class="field" for="gls">Giacenze riportate nelle liste movimentazione<select id="gls"><option value="1"${P.listStock !== false ? " selected" : ""}>Sì, alla fine del mese scorso: il file giacenze è facoltativo</option><option value="0"${P.listStock === false ? " selected" : ""}>No, colonna vuota: il file giacenze è obbligatorio</option></select></label>
     <div class="row"><button class="btn primary" type="submit" id="gbtn">Genera e scarica</button><span class="small muted" id="gstat"></span></div>
   </form>`;
   $("#gf").onsubmit = async e => {
     e.preventDefault();
     const n = v => Math.round(parseNum(v));
-    // da 1 a 60.000 codici; il file giacenze non può avere molti più codici delle liste (al massimo il 10% in più, o 10 codici)
-    const wantB = Math.min(60000, Math.max(1, n($("#gnb").value)) || 1);
-    P.nA = Math.min(60000, Math.max(1, n($("#gna").value) || 1)); P.nB = Math.min(wantB, Math.max(P.nA + 10, Math.round(P.nA * 1.1)));
-    $("#gna").value = fmtN(P.nA); $("#gnb").value = fmtN(P.nB);
-    const capB = P.nB < wantB ? ` Il file giacenze è stato portato a ${fmtN(P.nB)} codici: non può averne molti più delle liste.` : "";
+    // da 1 a 60.000 codici; circa 13 codici su 15 hanno pezzi a magazzino
+    P.nA = Math.min(60000, Math.max(1, n($("#gna").value) || 1)); P.nB = Math.max(1, Math.round(P.nA * 13 / 15));
+    $("#gna").value = fmtN(P.nA);
     P.mov = Math.min(1e9, Math.max(0, n($("#gmv").value))); P.stock = Math.min(1e9, Math.max(0, n($("#gst").value)));
-    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.fmtB = TRACCIATI.some(t => t[0] === $("#gfb").value) ? $("#gfb").value : "std"; P.listStock = $("#gls").value !== "0"; P.fmtA = $("#gfa").value === "lista" ? "lista" : "export";
+    P.weeks = +$("#gw").value; P.profile = $("#gpr").value; P.seed = n($("#gseed").value) || 1; P.listStock = true; P.fmtA = $("#gfa").value === "lista" ? "lista" : "export";
     if (!window.JSZip) { toast("Il generatore non si è caricato: ricarica la pagina."); return; }
     const b = $("#gbtn"), st = $("#gstat"); b.disabled = true;
     try {
@@ -192,14 +173,12 @@ async function viewProva(main) {
         const wa = XLSX.utils.book_new(), ex = P.fmtA !== "lista";
         const sa = XLSX.utils.aoa_to_sheet(ex ? exportRows(weeks[w].A, cm) : [["LISTA MOVIMENTAZIONE"], hdrA(P.listStock !== false)].concat(weeks[w].A));
         XLSX.utils.book_append_sheet(wa, sa, ex ? "Export" : "Liste Movimentazione");
-        zip.file(`${tag}_1_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
-        const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(stockSheet(cm ? weeks[w].B.map(r => [cm(r[0])].concat(r.slice(1))) : weeks[w].B, P.fmtB)), P.fmtB === "std" ? "GIACENZA CROSS" : "Giacenze");
-        zip.file(`${tag}_2_giacenze.xlsx`, XLSX.write(wb, { bookType: "xlsx", type: "array" }));
+        zip.file(`${tag}_lista_movimentazione.xlsx`, XLSX.write(wa, { bookType: "xlsx", type: "array" }));
       }
       st.textContent = "Comprimo i file…";
       const blob = await zip.generateAsync({ type: "blob" }), url = URL.createObjectURL(blob), a = document.createElement("a");
       a.href = url; a.download = `dati_di_prova_${P.nA}_codici${P.weeks > 1 ? `_${P.weeks}_caricamenti` : ""}.zip`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
-      st.textContent = `Fatto: ${weeks.length * 2} file Excel in un unico .zip, ${fmtN(P.nA)} ${P.nA === 1 ? "codice" : "codici"} nelle liste e ${fmtN(G.weeks[G.weeks.length - 1].B.length)} nel file giacenze.${capB} ${weeks.length > 1 ? "Ultimo caricamento: venduto" : "Venduto"} annuo ${fmtE(G.mov)}, valore a magazzino ${fmtE(G.stock)}.`;
+      st.textContent = `Fatto: ${weeks.length === 1 ? "1 file Excel" : fmtN(weeks.length) + " file Excel"} in un unico .zip, ${fmtN(P.nA)} ${P.nA === 1 ? "codice" : "codici"} con le giacenze a fine mese. ${weeks.length > 1 ? "Ultimo caricamento: venduto" : "Venduto"} annuo ${fmtE(G.mov)}, valore a magazzino ${fmtE(G.stock)}.`;
     } catch (x) { st.textContent = ""; toast("Generazione non riuscita: " + x.message); }
     finally { b.disabled = false; }
   };

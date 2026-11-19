@@ -15,7 +15,7 @@ async function viewComeFunziona(main) {
     <li><b>Accesso</b>: entri con nome utente e password personali. Al primo accesso la password provvisoria va cambiata; puoi cambiarla quando vuoi da <b>Password</b>, in alto a destra.</li>
     <li><b>Che cosa serve</b>: l'export mensile delle liste movimentazione. Le giacenze cambiate dopo la chiusura del mese si correggono a mano al passo 3.</li>
     <li><b>I file restano sul tuo computer</b>: gli Excel vengono letti nel browser; alla piattaforma arrivano solo le righe che servono al calcolo.</li>
-    <li><b>Per provare senza dati veri</b>: la pagina <b>Dati di prova</b> crea liste movimentazione e giacenze inventate, con la stessa struttura dei file reali.</li>
+    <li><b>Per provare senza dati veri</b>: la pagina <b>Dati di prova</b> crea liste movimentazione inventate, con le giacenze a fine mese e la stessa struttura dei file reali.</li>
     <li>Cliccando su <b>PartsPlanner</b>, in alto a sinistra, torni sempre alla pagina iniziale.</li></ul>`)}
   ${sec("cf-ordine", "Nuovo ordine, passo per passo", `<p>La pagina <b>Nuovo ordine</b> ti guida in cinque passi. La barra in alto mostra a che punto sei; i passi già fatti si riaprono cliccandoli.</p>
     ${passo(1, "Obiettivo", `<p>Scegli che cosa vuoi ottenere:</p><ul>

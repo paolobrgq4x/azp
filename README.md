@@ -93,7 +93,7 @@ Ogni utente può estrarre le giacenze dal proprio gestionale in una forma divers
 
 La pagina mostra sempre le colonne scelte, le prime righe lette e quanti codici si ritrovano nelle liste. Se la scelta non è sicura (più colonne plausibili, o quasi nessun codice in comune con le liste) chiede una conferma prima di salvare; le colonne si possono sempre cambiare a mano. Funziona anche con file senza riga di intestazione e con file CSV all'italiana (punto e virgola, virgola decimale): nei CSV i valori vengono letti come sono scritti, così «3,00» resta 3 e i codici non perdono gli zeri iniziali.
 
-In «Dati di prova» il file giacenze si può generare in quattro tracciati diversi per provare il riconoscimento.
+«Dati di prova» genera solo liste movimentazione, con le giacenze a fine mese, nel tracciato Export mensile o Lista disposizione.
 
 ## Struttura
 
