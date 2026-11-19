@@ -369,7 +369,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
     if (!rowsA.length) return fail(res, 400, `Nessun codice delle liste movimentazione è nel perimetro della rete (${P.size.toLocaleString("it-IT")} codici scelti dall'amministratore).`);
   }
   let result;
-  try { result = cross(rowsA, rowsB, { missing: req.body.missing === "lista" ? "lista" : "zero" }); } catch (e) { return fail(res, 400, e.message); }
+  try { result = cross(rowsA, rowsB, { missing: "lista" }); } catch (e) { return fail(res, 400, e.message); }
   if (!result.items.length) return fail(res, 400, "Nessun codice trovato nei file: controlla le colonne scelte.");
   // data delle giacenze delle liste: solo nella forma GG/MM/AAAA, e solo se le liste riportano le giacenze
   const ref = result.stock.n_list && typeof req.body.stock_ref === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(req.body.stock_ref) ? req.body.stock_ref : null;

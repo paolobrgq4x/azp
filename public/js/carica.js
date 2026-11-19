@@ -435,14 +435,11 @@ function stockCompare() {
     if (!inB) { if (gl > 0) { o.miss++; o.missPieces += gl; o.missVal += gl * cost; } }
     else if (hasL && gf !== gl) { o.changed++; if (gf > gl) o.up++; else o.down++; }
   }
+  o.onlyB = 0; for (const c of B.keys()) if (c && !seen.has(c)) o.onlyB++;
   return (SCMP = o);
 }
-// Codici con giacenza nelle liste ma assenti dal file giacenze: di solito sono pochi (esauriti nel frattempo).
-// Se sono molti il file giacenze è probabilmente parziale, e prima di salvare serve una scelta.
-const manyMissing = c => !!c && c.miss >= 10 && c.miss / c.withList > 0.25;
-// La scelta vale solo per i file con cui è stata fatta: se cambiano le liste o le giacenze, si riparte.
-const missChoice = () => { const U = state.upload, c = stockCompare(); return c && U.missKey === c.key && (U.miss === "lista" || U.miss === "zero") ? U.miss : null; };
-const needMissChoice = () => listStock().has && manyMissing(stockCompare()) && !missChoice();
+// Codici con giacenza nelle liste ma assenti dal file giacenze: per loro vale la giacenza delle liste.
+const needMissChoice = () => false;
 // Le giacenze sono a posto con un file giacenze in ordine, oppure, senza file, quando le liste le riportano.
 const stockReady = () => (state.upload.B.length ? slotReady("B") && !needMissChoice() : listStock().has);
 /* ============ Perimetro della rete ============
@@ -477,17 +474,15 @@ function stockSumCore() {
   const ref = LS.ref ? `al ${esc(LS.ref)}` : "alla fine del mese precedente";
   if (!U.B.length) return LS.has
     ? `<div class="stocksum"><p><b>Giacenze: quelle delle liste movimentazione</b>, ${ref}. ${fmtN(LS.codes)} codici con giacenza, ${fmtN(LS.pieces, Number.isInteger(LS.pieces) ? 0 : 2)} pezzi.</p>
-        <p class="small muted">Il file giacenze è facoltativo: se ne hai uno più recente aggiungilo, e le sue giacenze sostituiscono quelle delle liste.</p></div>`
+        <p class="small muted">Il file giacenze è facoltativo: se ne hai uno più recente aggiungilo. Per i codici che contiene vale la sua giacenza; per gli altri resta quella delle liste.</p></div>`
     : `<div class="stocksum warn"><p><b>Serve il file giacenze.</b> Le liste movimentazione non riportano le giacenze (${LS.nocol ? "la colonna non c'è" : "la colonna è vuota"}): senza il file giacenze ogni codice risulterebbe a zero.</p></div>`;
   if (!slotReady("B")) return "";
   if (!LS.has) return `<div class="stocksum"><p><b>Giacenze: quelle del file giacenze.</b> Le liste movimentazione non le riportano.</p></div>`;
-  const c = stockCompare(), many = manyMissing(c), ch = missChoice() || (many ? null : "zero");
-  const valFile = c.valFile + (ch === "lista" ? c.missVal : 0);
-  return `<div class="stocksum${many && !ch ? " warn" : ""}"><p><b>Giacenze: quelle del file giacenze</b>, più recenti di quelle delle liste (${ref}). Costi, SMin, SMax, consumi e ordini aperti restano quelli delle liste.</p>
+  const c = stockCompare(), valFile = c.valFile + c.missVal;
+  return `<div class="stocksum"><p><b>Giacenze: quelle del file giacenze</b>, più recenti di quelle delle liste (${ref}), per i codici che ci sono. Costi, SMin, SMax, consumi e ordini aperti restano quelli delle liste.</p>
     <p class="small">Rispetto alle liste la giacenza è cambiata per <b>${fmtN(c.changed)}</b> codici su ${fmtN(c.codes)}: ${fmtN(c.down)} in calo, ${fmtN(c.up)} in aumento. Valore al costo: da ${fmtE(c.valList)} a ${fmtE(valFile)}.</p>
-    ${c.miss ? `<fieldset class="missbox"><legend><b>${fmtN(c.miss)} ${c.miss === 1 ? "codice ha" : "codici hanno"} giacenza nelle liste ma non ${c.miss === 1 ? "è" : "sono"} nel file giacenze</b> (${fmtN(c.missPieces, Number.isInteger(c.missPieces) ? 0 : 2)} pezzi, ${fmtE(c.missVal)}).${many ? " Sono molti: il file giacenze potrebbe essere parziale. Scegli come trattarli." : ""}</legend>
-      <label class="check" for="mz"><input type="radio" name="miss" id="mz" value="zero"${ch === "zero" ? " checked" : ""}> Sono esauriti: giacenza zero</label>
-      <label class="check" for="ml"><input type="radio" name="miss" id="ml" value="lista"${ch === "lista" ? " checked" : ""}> Il file giacenze è parziale: per loro tengo la giacenza delle liste</label></fieldset>` : ""}</div>`;
+    ${c.miss ? `<p class="small"><b>${fmtN(c.miss)} ${c.miss === 1 ? "codice ha" : "codici hanno"} giacenza nelle liste ma non ${c.miss === 1 ? "è" : "sono"} nel file giacenze</b> (${fmtN(c.missPieces, Number.isInteger(c.missPieces) ? 0 : 2)} pezzi, ${fmtE(c.missVal)}): per ${c.miss === 1 ? "questo codice" : "questi codici"} resta la giacenza delle liste.</p>` : ""}
+    ${c.onlyB ? `<p class="small"><b>${fmtN(c.onlyB)} ${c.onlyB === 1 ? "codice è" : "codici sono"} solo nel file giacenze</b>: ${c.onlyB === 1 ? "entra" : "entrano"} con la giacenza del file, senza scorte né prezzi.</p>` : ""}</div>`;
 }
 function renderStockSum() {
   const h = $("#stocksum"); if (!h) return;
@@ -534,7 +529,7 @@ async function save(onDone) {
     // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
     const useB = U.B.length > 0, LS = listStock();
     const body = { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
-      missing: useB && missChoice() === "lista" ? "lista" : "zero", stock_ref: LS.has ? LS.ref : null, layouts };
+      missing: "lista", stock_ref: LS.has ? LS.ref : null, layouts };
     busy("Invio dei dati: 0%", 0);
     const r = await apiUpload("/api/snapshots", body, q => busy(`Invio dei dati: ${Math.round(q * 100)}%`, q * 0.6), () => busy("Incrocio delle liste con le giacenze e salvataggio…"));
     busy("Aggiornamento dello storico…");

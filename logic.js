@@ -48,15 +48,17 @@ const annuo = i => (i.cons_mese > 0 ? i.cons_mese * 12 : 0);
  * la data dell'ultima vendita.
  * In coda a ogni riga di rowsA (posizione 14) c'è la giacenza riportata dalla lista, vuota se la lista non la riporta.
  * rowsB: [code, giac, desc]; null se il file giacenze non è stato caricato: allora valgono le giacenze delle liste.
- * opts.missing: come trattare i codici delle liste assenti dal file giacenze:
- *   "zero"  (predefinito) giacenza zero: il codice è esaurito;
- *   "lista" resta la giacenza della lista: serve quando il file giacenze è parziale.
+ * Regola delle giacenze con il file giacenze:
+ *   codice nelle liste e nel file  → vale la giacenza del file;
+ *   codice nelle liste, non nel file → vale la giacenza delle liste;
+ *   codice solo nel file            → vale la giacenza del file (il codice entra senza scorte né prezzi).
+ * opts.missing = "zero" (solo per usi particolari) azzera invece i codici delle liste assenti dal file.
  */
 function cross(rowsA, rowsB, opts) {
   const useFile = rowsB !== null && rowsB !== undefined;
   if (!Array.isArray(rowsA) || (useFile && !Array.isArray(rowsB))) throw new Error("Formato dati non valido.");
   if (rowsA.length > MAX_ROWS || (useFile && rowsB.length > MAX_ROWS)) throw new Error("File troppo grandi (massimo 150.000 righe).");
-  const keep = useFile && !!opts && opts.missing === "lista";
+  const keep = useFile && !(opts && opts.missing === "zero");
 
   const giac = new Map(), bDesc = new Map();
   for (const r of useFile ? rowsB : []) {
