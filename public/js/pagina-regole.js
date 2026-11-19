@@ -21,7 +21,7 @@ async function viewRegole(main) {
   <section class="panel rules"><h3>Quali giacenze si usano</h3><ul>
     <li><b>Giacenze delle liste</b>: i calcoli partono dalla giacenza che le liste movimentazione riportano per ogni codice, alla fine del mese precedente.${ex("lista chiusa al 31/10: la candela ha giacenza 12.")}</li>
     <li><b>Giacenze corrette a mano</b>: al passo 3 si correggono le giacenze cambiate dopo la chiusura del mese. Per i codici corretti vale la giacenza scritta a mano, per tutti gli altri quella delle liste; costi, SMin, SMax, consumo, regolarità e ordini aperti non cambiano.${ex("oggi le candele a scaffale sono 4: scrivi 4 e da questo caricamento la giacenza è 4.")}</li>
-    <li><b>Liste senza giacenze</b> (colonna assente o vuota): il file giacenze è obbligatorio, altrimenti ogni codice risulterebbe a zero.</li>
+    <li><b>Liste senza giacenze</b> (colonna assente o vuota): ogni codice parte da zero; le giacenze si scrivono a mano al passo 3.</li>
     <li><b>Ordini aperti</b>: sono sempre quelli delle liste. Se correggi a mano la giacenza di un codice il cui ordine è arrivato dopo la chiusura delle liste, i pezzi arrivati contano due volte, nella giacenza e nell'ordine aperto: per quel codice la proposta può essere più bassa del necessario.${ex("lista: 3 filtri olio e 2 ordinati. I 2 arrivano e correggi la giacenza a 5: il disponibile calcolato è 5 + 2 = 7, mentre quello vero è 5.")}</li>
     <li>In ogni pagina, nell'Excel e nel PDF è scritto quali giacenze sono state usate.</li></ul></section>
   <section class="panel rules"><h3>Come viene classificato ogni codice</h3><ul>

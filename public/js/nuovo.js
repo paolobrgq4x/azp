@@ -115,12 +115,11 @@ function wireSlot(slot) {
 }
 function wStep3(body, main) {
   const U = state.upload, LS = listStock();
-  // Liste senza giacenze (raro): serve il file giacenze del gestionale.
-  if (!LS.has || U.B.length) return wStep3File(body, main);
   const rows = stockRows(), ed = stockEdits(), ref = LS.ref ? `al ${LS.ref}` : "di fine mese";
   const V = W.sv || (W.sv = { q: "", only: false, n: 100 });
   body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Le giacenze sono cambiate?</h2>
-      <p class="meta">Queste sono le giacenze riportate dalle liste movimentazione ${esc(ref)}. Se da allora qualcosa è cambiato, correggi solo i codici cambiati; altrimenti conferma così come sono.</p>
+      ${LS.has ? `<p class="meta">Queste sono le giacenze riportate dalle liste movimentazione ${esc(ref)}. Se da allora qualcosa è cambiato, correggi solo i codici cambiati; altrimenti conferma così come sono.</p>`
+        : `<div class="msg err"><b>Le liste caricate non riportano le giacenze</b>: ogni codice risulta a zero. Scrivi qui le giacenze dei codici a magazzino, oppure torna al passo 2 e carica liste che le riportano.</div>`}
       <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b> · ${fmtN(rows.length)} codici</p>
       <div class="row stockbar"><input type="search" id="sq" placeholder="Cerca codice, descrizione o locazione" value="${esc(V.q)}" aria-label="Cerca">
         <label class="check" for="sonly"><input type="checkbox" id="sonly"${V.only ? " checked" : ""}> Solo i codici corretti</label>
@@ -160,22 +159,6 @@ function wStep3(body, main) {
   $("#sonly").onchange = e => { V.only = e.target.checked; V.n = 100; draw(); };
   $("#sreset").onclick = () => { ed.clear(); draw(); };
   draw();
-  $("#wback").onclick = () => wGo(main, 2);
-  $("#save").onclick = () => save(r => { W.snapId = r.id; W.lookup = null; wGo(main, 4); });
-}
-// Passo 3 con il file giacenze: solo quando le liste non riportano le giacenze.
-function wStep3File(body, main) {
-  const U = state.upload;
-  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
-      <p class="meta">Le liste movimentazione caricate non riportano le giacenze: serve un'estrazione del gestionale con una colonna per il codice e una per la quantità in giacenza. La piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne.</p>
-      <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
-      <div id="listB"></div>
-      <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>
-      <div class="msg err" id="uerr" hidden></div>
-    </section>
-    <div id="stocksum"></div>
-    <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><div class="row"><span class="small muted" id="sstat"></span><button class="btn primary" type="button" id="save">Incrocia e salva</button></div></div>`;
-  wireSlot("B"); renderSlot("B"); updateSave();
   $("#wback").onclick = () => wGo(main, 2);
   $("#save").onclick = () => save(r => { W.snapId = r.id; W.lookup = null; wGo(main, 4); });
 }

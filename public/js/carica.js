@@ -547,7 +547,7 @@ async function save(onDone) {
     const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
     // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
     // le giacenze corrette a mano arrivano come un piccolo «file giacenze» con i soli codici cambiati
-    const useB = U.B.length > 0, LS = listStock(), ed = !useB && LS.has ? stockEdits() : new Map();
+    const useB = false, LS = listStock(), ed = stockEdits();
     const body = { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"),
       rowsB: useB ? extract("B") : ed.size ? [...ed].map(([c, q]) => [c, q, ""]) : null, manual: !useB && ed.size > 0,
       missing: "lista", stock_ref: LS.has ? LS.ref : null, layouts };

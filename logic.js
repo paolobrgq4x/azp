@@ -94,7 +94,7 @@ function cross(rowsA, rowsB, opts) {
     });
   }
   // Senza file giacenze servono le giacenze delle liste: se non ci sono, ogni codice risulterebbe a zero.
-  if (!useFile && !nListPos) throw new Error("Le liste movimentazione non riportano le giacenze: carica anche il file giacenze.");
+  if (!useFile && !nListPos) throw new Error("Le liste movimentazione non riportano le giacenze: scrivi quelle dei codici a magazzino, oppure carica liste che le riportano.");
   for (const [c, q] of giac) {
     if (seen.has(c) || q <= 0) continue;
     items.push({ code: c, descr: bDesc.get(c) || "", loc: "", dg: "", status: "nostorico", in_b: true,

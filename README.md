@@ -67,7 +67,7 @@ Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni c
 
 - **Giacenze delle liste** — i calcoli partono dalla giacenza riportata dalle liste (fine mese precedente).
 - **Correzioni a mano** — al passo 3 di «Nuovo ordine» l'utente vede la giacenza di ogni codice e corregge quelle cambiate dopo la chiusura del mese; per quei codici vale la giacenza corretta (fonte «manuale»), per gli altri quella delle liste. La giacenza delle liste resta salvata accanto.
-- **Liste senza giacenze** (colonna assente o vuota) — il file giacenze è obbligatorio.
+- **Liste senza giacenze** (colonna assente o vuota) — ogni codice parte da zero; le giacenze si scrivono a mano al passo 3.
 
 Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`: `lista`, `file`, `file_lista`) e, se è scritta nell'intestazione della colonna, la data a cui si riferiscono quelle delle liste (`stock_ref`); per ogni codice resta anche la giacenza riportata dalla lista (`giac_lista`). L'origine è scritta in ogni pagina, nell'Excel e nel PDF.
 
