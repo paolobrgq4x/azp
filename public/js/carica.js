@@ -522,6 +522,7 @@ function extract(slot) {
   }
   return out;
 }
+function clearUpload() { const U = state.upload; U.A = []; U.B = []; U.miss = null; U.missKey = null; }
 async function save(onDone) {
   const b = $("#save"), st = $("#sstat"), err = $("#uerr"), U = state.upload;
   b.disabled = true; st.textContent = "Salvataggio in corso…"; err.hidden = true;
@@ -538,7 +539,7 @@ async function save(onDone) {
     const r = await apiUpload("/api/snapshots", body, q => busy(`Invio dei dati: ${Math.round(q * 100)}%`, q * 0.6), () => busy("Incrocio delle liste con le giacenze e salvataggio…"));
     busy("Aggiornamento dello storico…");
     if (state.layoutsDealer === state.dealerId) layouts.forEach(l => { state.layouts[l.kind + ":" + l.sig] = { ...l.map }; });
-    U.A = []; U.B = []; U.miss = null; U.missKey = null;
+    // i file restano caricati: tornando al passo delle giacenze se ne può aggiungere o cambiare il file
     toast(`Dati salvati: ${fmtN(r.kpi.n_codes)} codici${r.dup ? `, ${fmtN(r.dup)} doppioni nello storico contati una volta` : ""}. ${stockNote(r)}.${r.perim_n ? ` Perimetro della rete: ${fmtN(r.n_out)} codici dei file sono rimasti fuori.` : ""}`);
     await loadSnapshots(); state.analisi = { ...state.analisi, snapId: r.id, offset: 0, f: "tutti", q: "", sort: null };
     busy(null);

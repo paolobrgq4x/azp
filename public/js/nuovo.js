@@ -4,15 +4,23 @@
 async function viewNuovo(main) {
   if (needDealer(main)) return;
   if (!state.snapshots.length) await loadSnapshots();
-  if (W.dealer !== state.dealerId) { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [] }); W.dealer = state.dealerId; state.ordine.history = []; }
+  if (W.dealer !== state.dealerId) { Object.assign(W, { step: 1, max: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [] }); W.dealer = state.dealerId; state.ordine.history = []; clearUpload(); }
   main.innerHTML = `<div class="head"><div><h1>Nuovo ordine</h1><p class="sub">${esc(dealerName(state.dealerId))}. Scegli l'obiettivo, carica i dati più recenti, scegli i codici e ottieni il risultato.</p></div></div>
-    <ol class="stepper" aria-label="Avanzamento">${WSTEPS.map((t, k) => `<li class="${k + 1 < W.step ? "done" : k + 1 === W.step ? "cur" : ""}"${k + 1 === W.step ? ' aria-current="step"' : ""}><span class="sn">${k + 1 < W.step ? "✓" : k + 1}</span><span class="st">${t}</span></li>`).join("")}</ol>
+    <ol class="stepper" aria-label="Avanzamento">${WSTEPS.map((t, k) => { const n = k + 1, inner = `<span class="sn">${n < W.step ? "✓" : n}</span><span class="st">${t}</span>`;
+      return `<li class="${n < W.step ? "done" : n === W.step ? "cur" : ""}"${n === W.step ? ' aria-current="step"' : ""}>${n !== W.step && n <= (W.max || 1) ? `<button type="button" class="stepbtn" data-step="${n}" title="Vai al passo ${n}: ${esc(t)}">${inner}</button>` : inner}</li>`; }).join("")}</ol>
     ${W.step > 1 ? `<p class="small muted wgoal">Obiettivo: <b>${esc(SCENARI[W.purpose].t)}</b> · ${esc(W.purpose === "cover" ? orizzLabel(rules().months) : fmtE(wBudget()))} <button class="link" type="button" id="wchg">cambia</button></p>` : ""}
     <div id="wbody"></div>`;
   if ($("#wchg")) $("#wchg").onclick = () => wGo(main, 1);
+  // i passi già raggiunti si possono riaprire cliccandoli
+  $$(".stepper .stepbtn").forEach(b => b.onclick = () => {
+    const n = +b.dataset.step;
+    if (n === 3 && !state.upload.A.length) { toast("Per caricare le giacenze servono le liste movimentazione: caricale al passo 2."); wGo(main, 2); return; }
+    if (n >= 4 && !state.snapshots.length) { wGo(main, 2); return; }
+    wGo(main, n);
+  });
   ({ 1: wStep1, 2: wStep2, 3: wStep3, 4: wStep4, 5: wStep5 })[W.step]($("#wbody"), main);
 }
-const wGo = (main, n) => { W.step = n; viewNuovo(main); window.scrollTo(0, 0); };
+const wGo = (main, n) => { W.step = n; W.max = Math.max(W.max || 1, n); viewNuovo(main); window.scrollTo(0, 0); };
 
 function wStep1(body, main) {
   const card = (id, inner) => `<label class="choice big${W.purpose === id ? " on" : ""}" for="pp_${id}"><input type="radio" name="pp" id="pp_${id}" value="${id}"${W.purpose === id ? " checked" : ""}><span><b>${SCENARI[id].t}</b><span class="small muted">${SCENARI[id].d}</span><span class="pin">${inner}</span></span></label>`;
@@ -199,6 +207,7 @@ async function wCompute() {
   return true;
 }
 async function wStep5(body, main) {
+  if (W.codesMode !== "all" && W.codes.length && !W.lookup) await wLookup();
   body.innerHTML = `<div class="panel waitbox"><div class="busyrow"><span class="spin" aria-hidden="true"></span><span>Calcolo della proposta su ${W.codesMode === "all" ? "tutti i codici" : "i codici scelti"}…</span></div><div class="pbar ind"><i></i></div></div>`;
   await wCompute();
   body.innerHTML = `<div class="wnav top"><span class="num mono small muted">PASSO 5 DI 5 · RISULTATO</span><div class="row">
@@ -207,5 +216,5 @@ async function wStep5(body, main) {
   const recalc = async alertOnly => { if (!alertOnly && !(await wCompute())) return; renderProposal("#wres", recalc); renderHistory("#whist", "#wres", recalc); };
   renderProposal("#wres", recalc); renderHistory("#whist", "#wres", recalc);
   $("#wgoal").onclick = () => wGo(main, 1); $("#wcodes").onclick = () => wGo(main, 4);
-  $("#wnew").onclick = () => { Object.assign(W, { step: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [], listName: "" }); state.ordine.history = []; wGo(main, 1); };
+  $("#wnew").onclick = () => { clearUpload(); Object.assign(W, { step: 1, max: 1, snapId: null, codes: [], lookup: null, codesMode: "all", groups: [], abc: [], listName: "" }); state.ordine.history = []; wGo(main, 1); };
 }
