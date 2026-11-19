@@ -432,3 +432,16 @@ a.brand{color:inherit;text-decoration:none}
 .stepper .stepbtn{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:8px;width:calc(100% + 20px);min-width:0;cursor:pointer;margin:-10px;padding:10px;border-radius:inherit}
 .stepper li:has(.stepbtn):hover{border-color:var(--ink)}
 .stepper .stepbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+/* come funziona */
+.gindex{display:flex;flex-wrap:wrap;gap:8px;margin:4px 0 16px}
+.guida{scroll-margin-top:16px}
+.guida h2{margin:0 0 10px}
+.guida p,.guida ul{margin:0 0 10px;line-height:1.55}
+.guida ul{padding-left:20px}
+.guida li{margin-bottom:6px}
+.gstep{display:flex;gap:14px;padding:12px 0;border-top:1px solid var(--line)}
+.gstep h3{margin:2px 0 6px;font-size:16px}
+.gnum{flex:none;width:30px;height:30px;border-radius:50%;background:var(--ink);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600}
+.guida .tablebox{max-width:640px;margin-bottom:10px}
+.faq dt{font-weight:600;margin-top:10px}
+.faq dd{margin:4px 0 0;line-height:1.55}

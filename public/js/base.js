@@ -202,6 +202,7 @@ const VIEWS = [
   { id: "codice", label: "Scheda codice" },
   { id: "regole", label: "Regole" },
   { id: "prova", label: "Dati di prova" },
+  { id: "come-funziona", label: "Come funziona" },
   { id: "admin", label: "Amministrazione", admin: true },
   { id: "probabilita", label: "Probabilità di vendita", hidden: true }
 ];
@@ -248,7 +249,7 @@ function route() {
   if (location.hash && VIEWS.some(v => v.id === view)) history.replaceState(null, "", "/" + view);
   if (!VIEWS.some(v => v.id === view) || (VIEWS.find(v => v.id === view).admin && !isAdmin())) { view = isAdmin() ? "rete" : "nuovo"; history.replaceState(null, "", "/" + view); }
   const main = shell(view);
-  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, prova: viewProva, admin: viewAdmin, probabilita: viewProbabilita }[view];
+  const fn = { rete: viewRete, nuovo: viewNuovo, analisi: viewAnalisi, codice: viewCodice, regole: viewRegole, prova: viewProva, admin: viewAdmin, probabilita: viewProbabilita, "come-funziona": viewComeFunziona }[view];
   fn(main).catch(e => { if (!e.silent) main.innerHTML = `<div class="msg err">${esc(e.message)}</div>`; });
 }
 window.addEventListener("hashchange", route);
@@ -259,6 +260,6 @@ document.addEventListener("click", e => {
   if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || a.target || a.hasAttribute("download")) return;
   // il nome PartsPlanner porta alla pagina iniziale: la rete per l'amministratore, il nuovo ordine (dal primo passo) per gli altri
   if (a.getAttribute("href") === "/") { e.preventDefault(); const home = isAdmin() ? "rete" : "nuovo"; if (home === "nuovo" && typeof W !== "undefined") W.step = 1; go(home); return; }
-  const m = a.getAttribute("href").match(/^[#/]([a-z]+)$/);
+  const m = a.getAttribute("href").match(/^[#/]([a-z]+(?:-[a-z]+)*)$/);
   if (m && VIEWS.some(v => v.id === m[1])) { e.preventDefault(); go(m[1]); }
 });
