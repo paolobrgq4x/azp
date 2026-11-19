@@ -13,7 +13,7 @@ const FIELDS_A = [
   { key: "listino", label: "Prezzo di listino", syn: ["prezzo listino eur", "prezzo listino", "listino"] },
   { key: "ord", label: "Ordini aperti", syn: ["ord. aperti", "ordini aperti", "ord aperti", "in ordine"] },
   // giacenza riportata dalla lista (alla fine del mese precedente): facoltativa; se c'è, il file giacenze non è indispensabile
-  { key: "giac", label: "Giacenza riportata nella lista", syn: ["giac cross aggiornate al", "giac cross", "giacenze cross", "giacenza cross", "giacenza", "giacenze", "giac", "g.dispo.", "g.dispo", "esistenza", "stock"],
+  { key: "giac", label: "Giacenza riportata nella lista", syn: ["giacenza aggiornata al", "giacenza", "giacenze", "giac", "g.dispo.", "g.dispo", "esistenza", "stock"],
     neg: ["min", "max", "mass", "valore", "importo", "prezzo", "costo", "ordin", "impegn", "media", "sicur", "riord"] },
   { key: "smin", label: "Scorta minima", req: true, syn: ["smin", "scorta min", "scorta minima"] },
   { key: "smax", label: "Scorta massima", req: true, syn: ["smax", "scorta max", "scorta massima"] },

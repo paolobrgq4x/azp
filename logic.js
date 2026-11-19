@@ -54,7 +54,7 @@ const annuo = i => (i.cons_mese > 0 ? i.cons_mese * 12 : 0);
  *   codice solo nel file            → vale la giacenza del file (il codice entra senza scorte né prezzi).
  * opts.missing = "zero" (solo per usi particolari) azzera invece i codici delle liste assenti dal file.
  */
-function cross(rowsA, rowsB, opts) {
+function incrocia(rowsA, rowsB, opts) {
   const useFile = rowsB !== null && rowsB !== undefined;
   if (!Array.isArray(rowsA) || (useFile && !Array.isArray(rowsB))) throw new Error("Formato dati non valido.");
   if (rowsA.length > MAX_ROWS || (useFile && rowsB.length > MAX_ROWS)) throw new Error("File troppo grandi (massimo 150.000 righe).");
@@ -614,5 +614,5 @@ function kpis(items, flagged = new Set(), sampleCap = 5000) {
   };
 }
 
-module.exports = { REG_MAX, MAX_TOTAL, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, SELL_MONTHS, SELL_PROB, cleanRules, cross, scenario, filterValues, kpis, GROUPS,
+module.exports = { REG_MAX, MAX_TOTAL, RULES_DEFAULT, MODES, MONTHS, MAX_COVER, SELL_MONTHS, SELL_PROB, cleanRules, incrocia, scenario, filterValues, kpis, GROUPS,
   _risk: { riskAt, probOf, spreadRisk } };

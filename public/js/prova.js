@@ -17,7 +17,7 @@ const G_PARTS = [["8", "RIVEST.", 380, 720], ["8", "PARAURTI ANT.", 290, 650], [
   ["9", "BATTERIA", 110, 290], ["4", "MOLLA ELICOID.", 40, 130], ["4", "CUSCINETTO RUOTA", 75, 210], ["6", "CERCHIO", 180, 690], ["8", "RIVEST. SEDILE", 140, 520],
   ["8", "PANNELLO PORTA", 160, 480], ["1", "SUPPORTO MOTORE", 60, 220], ["1", "TURBOCOMPRESSORE", 950, 2400], ["3", "KIT FRIZIONE", 260, 720], ["0", "BULLONE", 1, 9],
   ["7", "LEVA FRENO MANO", 35, 140], ["7", "PEDALIERA", 60, 210], ["3", "SUPPORTO CAMBIO", 45, 160], ["0", "VERNICE RITOCCO", 12, 38], ["5", "MOZZO POST.", 70, 230]];
-const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giac Cross Aggiornate al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
+const G_HDR_A = ["DG", "Codice particolare", "Descrizione", "Locaz", "Prezzo listino EUR", "Sco STK EUR", "QtaVen/UltVen", "Ven Spc", "Giacenza aggiornata al ", "Ord. Aperti", "FAB", "Regolarità vendite", "Consumo medio mensile", "SMin", "SMax", "Scad"];
 // Intestazione delle liste di prova: se riportano le giacenze, la colonna dice a che data (la fine del mese scorso).
 const G_COL_GIAC = 8;
 const monthEnd = () => { const d = new Date(), e = new Date(d.getFullYear(), d.getMonth(), 0); return `${String(e.getDate()).padStart(2, "0")}/${String(e.getMonth() + 1).padStart(2, "0")}/${e.getFullYear()}`; };

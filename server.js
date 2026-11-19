@@ -4,7 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const { pool, migrate, tx } = require("./db");
-const { cross, scenario, filterValues, kpis, cleanRules, MODES } = require("./logic");
+const { incrocia, scenario, filterValues, kpis, cleanRules, MODES } = require("./logic");
 
 const PORT = process.env.PORT || 10000;
 const PROD = process.env.NODE_ENV === "production";
@@ -369,7 +369,7 @@ app.post("/api/snapshots", big, auth(), wrap(async (req, res) => {
     if (!rowsA.length) return fail(res, 400, `Nessun codice delle liste movimentazione è nel perimetro della rete (${P.size.toLocaleString("it-IT")} codici scelti dall'amministratore).`);
   }
   let result;
-  try { result = cross(rowsA, rowsB, { missing: "lista" }); } catch (e) { return fail(res, 400, e.message); }
+  try { result = incrocia(rowsA, rowsB, { missing: "lista" }); } catch (e) { return fail(res, 400, e.message); }
   // giacenze delle liste con alcune correzioni fatte a mano al passo 3
   if (req.body.manual === true && Array.isArray(rowsB)) result.stock.src = "manuale";
   if (!result.items.length) return fail(res, 400, "Nessun codice trovato nei file: controlla le colonne scelte.");
