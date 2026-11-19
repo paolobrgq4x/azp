@@ -445,3 +445,9 @@ a.brand{color:inherit;text-decoration:none}
 .guida .tablebox{max-width:640px;margin-bottom:10px}
 .faq dt{font-weight:600;margin-top:10px}
 .faq dd{margin:4px 0 0;line-height:1.55}
+/* giacenze corrette a mano */
+.stockbar{gap:12px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.stockbar input[type=search]{min-width:280px;flex:1}
+.stocktab .qin{width:90px;text-align:right;margin:0;padding:4px 8px}
+.stocktab tr.edited td{background:var(--warn-soft)}
+.stocktab tr.edited .qin{border-color:var(--warn);font-weight:600}

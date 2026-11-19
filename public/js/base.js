@@ -21,10 +21,11 @@ function stockNote(s) {
   if (!s) return "";
   const ref = s.stock_ref ? ` al ${s.stock_ref}` : "";
   if (s.stock_src === "lista") return `Giacenze delle liste movimentazione${ref || " (fine mese precedente)"}`;
+  if (s.stock_src === "manuale") return `Giacenze delle liste movimentazione${ref}, con alcune correzioni fatte a mano`;
   if (s.stock_src === "file_lista") return `Giacenze del file giacenze; per i codici assenti dal file, quelle delle liste${ref}`;
   return "Giacenze del file giacenze";
 }
-const stockShort = s => (s.stock_src === "lista" ? `giacenze delle liste${s.stock_ref ? ` al ${s.stock_ref}` : ""}` : s.stock_src === "file_lista" ? "giacenze del file e, per i codici assenti, delle liste" : "giacenze del file");
+const stockShort = s => (s.stock_src === "manuale" ? `giacenze delle liste${s.stock_ref ? ` al ${s.stock_ref}` : ""}, corrette a mano` : s.stock_src === "lista" ? `giacenze delle liste${s.stock_ref ? ` al ${s.stock_ref}` : ""}` : s.stock_src === "file_lista" ? "giacenze del file e, per i codici assenti, delle liste" : "giacenze del file");
 // Data scritta nell'intestazione di una colonna («… al 31/10/2026»), nella forma GG/MM/AAAA; null se non c'è.
 function refDate(label) {
   const m = /(?:^|\D)(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4}|\d{2})(?!\d)/.exec(String(label == null ? "" : label));

@@ -109,7 +109,7 @@ CREATE INDEX IF NOT EXISTS sessions_exp_idx ON sessions (expires_at);
 ALTER TABLE snapshots DROP CONSTRAINT IF EXISTS snapshots_dealer_id_week_date_key;
 CREATE INDEX IF NOT EXISTS snapshots_order_idx ON snapshots (dealer_id, week_date, uploaded_at, id);
 -- Giacenze: quelle riportate dalle liste (fine mese precedente) accanto a quelle usate nei calcoli.
---   stock_src: da dove vengono le giacenze del caricamento ('lista', 'file', 'file_lista'); vuoto nei caricamenti precedenti (file giacenze)
+--   stock_src: da dove vengono le giacenze del caricamento ('lista', 'manuale' = liste con correzioni a mano, 'file', 'file_lista'); vuoto nei caricamenti precedenti (file giacenze)
 --   stock_ref: data a cui si riferiscono le giacenze delle liste, se è scritta nell'intestazione della colonna
 ALTER TABLE items ADD COLUMN IF NOT EXISTS giac_lista float8;
 ALTER TABLE snapshots ADD COLUMN IF NOT EXISTS stock_src text;

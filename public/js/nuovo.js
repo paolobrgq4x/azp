@@ -114,9 +114,60 @@ function wireSlot(slot) {
   step.addEventListener("drop", e => { e.preventDefault(); step.classList.remove("drag"); handleFiles(slot, Array.from(e.dataTransfer.files)); });
 }
 function wStep3(body, main) {
-  const U = state.upload, opt = listStock().has;
-  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>${opt ? "Hai giacenze più recenti? (facoltativo)" : "Carica le giacenze attuali"}</h2>
-      <p class="meta">${opt ? "Le liste riportano già le giacenze: puoi salvare così. Se hai un file giacenze più recente caricalo: le sue giacenze sostituiscono quelle delle liste. " : ""}Va bene qualsiasi estrazione del tuo gestionale, purché abbia una colonna con il codice e una con la quantità in giacenza: la piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne. Con più file o più fogli con le stesse colonne, le quantità dello stesso codice si sommano.</p>
+  const U = state.upload, LS = listStock();
+  // Liste senza giacenze (raro): serve il file giacenze del gestionale.
+  if (!LS.has || U.B.length) return wStep3File(body, main);
+  const rows = stockRows(), ed = stockEdits(), ref = LS.ref ? `al ${LS.ref}` : "di fine mese";
+  const V = W.sv || (W.sv = { q: "", only: false, n: 100 });
+  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Le giacenze sono cambiate?</h2>
+      <p class="meta">Queste sono le giacenze riportate dalle liste movimentazione ${esc(ref)}. Se da allora qualcosa è cambiato, correggi solo i codici cambiati; altrimenti conferma così come sono.</p>
+      <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b> · ${fmtN(rows.length)} codici</p>
+      <div class="row stockbar"><input type="search" id="sq" placeholder="Cerca codice, descrizione o locazione" value="${esc(V.q)}" aria-label="Cerca">
+        <label class="check" for="sonly"><input type="checkbox" id="sonly"${V.only ? " checked" : ""}> Solo i codici corretti</label>
+        <button class="btn sm" type="button" id="sreset">Annulla le correzioni</button></div>
+      <p class="small" id="ssum"></p>
+      <div class="tablebox"><table class="stocktab"><thead><tr><th>Codice</th><th>Descrizione</th><th>Locaz.</th><th class="num">Giacenza nelle liste</th><th class="num">Giacenza attuale</th></tr></thead><tbody id="sbody"></tbody></table></div>
+      <div class="row" id="smore"></div>
+      <div class="msg err" id="uerr" hidden></div>
+    </section>
+    <div class="wnav"><button class="btn" type="button" id="wback">Indietro</button><div class="row"><span class="small muted" id="sstat"></span><button class="btn primary" type="button" id="save">Conferma e salva</button></div></div>`;
+  const shown = () => { const q = V.q.trim().toUpperCase(); return rows.filter(r => (!V.only || ed.has(r.code)) && (!q || r.code.includes(q) || r.descr.toUpperCase().includes(q) || r.loc.toUpperCase().includes(q))); };
+  const summary = () => {
+    let up = 0, down = 0, dp = 0; for (const r of rows) if (ed.has(r.code)) { const d = ed.get(r.code) - r.gl; dp += d; if (d > 0) up++; else down++; }
+    $("#ssum").innerHTML = ed.size ? `<b>${ed.size === 1 ? "1 giacenza corretta" : fmtN(ed.size) + " giacenze corrette"}</b>: ${fmtN(down)} in calo, ${fmtN(up)} in aumento, ${dp > 0 ? "+" : ""}${fmtN(dp)} ${Math.abs(dp) === 1 ? "pezzo" : "pezzi"} in tutto.` : `Nessuna correzione: valgono le giacenze delle liste.`;
+    $("#save").textContent = ed.size ? `Salva con ${ed.size === 1 ? "1 correzione" : fmtN(ed.size) + " correzioni"}` : "Conferma e salva";
+    $("#sreset").disabled = !ed.size;
+  };
+  const draw = () => {
+    const list = shown(), part = list.slice(0, V.n);
+    $("#sbody").innerHTML = part.length ? part.map(r => { const v = ed.has(r.code) ? ed.get(r.code) : r.gl;
+      return `<tr${ed.has(r.code) ? ' class="edited"' : ""}><td class="mono">${esc(r.code)}</td><td>${esc(r.descr)}</td><td class="small">${esc(r.loc)}</td><td class="num">${fmtN(r.gl)}</td>
+        <td class="num"><input type="number" class="qin" min="0" step="1" inputmode="numeric" data-c="${esc(r.code)}" value="${v}" aria-label="Giacenza attuale di ${esc(r.code)}"></td></tr>`; }).join("")
+      : `<tr><td colspan="5" class="muted">${V.only ? "Nessun codice corretto." : "Nessun codice trovato."}</td></tr>`;
+    $("#smore").innerHTML = list.length > V.n ? `<button class="btn sm" type="button" id="smorebtn">Mostra altri ${fmtN(Math.min(200, list.length - V.n))}</button><span class="small muted">${fmtN(V.n)} di ${fmtN(list.length)}</span>` : "";
+    if ($("#smorebtn")) $("#smorebtn").onclick = () => { V.n += 200; draw(); };
+    $$("#sbody .qin").forEach(inp => inp.onchange = () => {
+      const r = rows.find(x => x.code === inp.dataset.c), raw = inp.value.trim().replace(",", ".");
+      const q = raw === "" ? r.gl : Math.max(0, Math.round(+raw));
+      if (!Number.isFinite(q)) { inp.value = ed.has(r.code) ? ed.get(r.code) : r.gl; return; }
+      if (q === r.gl) ed.delete(r.code); else ed.set(r.code, q);
+      inp.value = q; inp.closest("tr").classList.toggle("edited", ed.has(r.code)); summary();
+    });
+    summary();
+  };
+  let t = null;
+  $("#sq").oninput = e => { clearTimeout(t); t = setTimeout(() => { V.q = e.target.value; V.n = 100; draw(); }, 200); };
+  $("#sonly").onchange = e => { V.only = e.target.checked; V.n = 100; draw(); };
+  $("#sreset").onclick = () => { ed.clear(); draw(); };
+  draw();
+  $("#wback").onclick = () => wGo(main, 2);
+  $("#save").onclick = () => save(r => { W.snapId = r.id; W.lookup = null; wGo(main, 4); });
+}
+// Passo 3 con il file giacenze: solo quando le liste non riportano le giacenze.
+function wStep3File(body, main) {
+  const U = state.upload;
+  body.innerHTML = `<section class="step" id="stepB"><span class="num">PASSO 3 DI 5</span><h2>Carica le giacenze attuali</h2>
+      <p class="meta">Le liste movimentazione caricate non riportano le giacenze: serve un'estrazione del gestionale con una colonna per il codice e una per la quantità in giacenza. La piattaforma le riconosce da sola, ti mostra cosa ha letto e ignora tutte le altre colonne.</p>
       <p class="meta">Liste movimentazione: <b>${esc(U.A.map(s => s.wb.name).join(", "))}</b></p>
       <div id="listB"></div>
       <div class="row"><label class="btn" for="fileB">Scegli i file Excel</label><input type="file" id="fileB" accept=".xlsx,.xls,.xlsm,.csv" multiple></div>

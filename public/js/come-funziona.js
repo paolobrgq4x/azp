@@ -13,7 +13,7 @@ async function viewComeFunziona(main) {
   ${sec("cf-breve", "In breve", `<p>PartsPlanner incrocia le <b>liste movimentazione</b> della concessionaria con le <b>giacenze</b> e propone quanti pezzi pianificare per ogni codice, rispettando SMin e SMax. Ogni quantità ha la sua spiegazione. Sei tu a decidere riga per riga che cosa confermare; alla fine scarichi l'ordine in Excel o in PDF. La piattaforma non invia ordini a nessuno.</p>`)}
   ${sec("cf-inizio", "Prima di iniziare", `<ul>
     <li><b>Accesso</b>: entri con nome utente e password personali. Al primo accesso la password provvisoria va cambiata; puoi cambiarla quando vuoi da <b>Password</b>, in alto a destra.</li>
-    <li><b>Che cosa serve</b>: l'export delle liste movimentazione (obbligatorio) e, se ne hai uno più recente, il file delle giacenze dal gestionale (facoltativo).</li>
+    <li><b>Che cosa serve</b>: l'export mensile delle liste movimentazione. Le giacenze cambiate dopo la chiusura del mese si correggono a mano al passo 3.</li>
     <li><b>I file restano sul tuo computer</b>: gli Excel vengono letti nel browser; alla piattaforma arrivano solo le righe che servono al calcolo.</li>
     <li><b>Per provare senza dati veri</b>: la pagina <b>Dati di prova</b> crea liste movimentazione e giacenze inventate, con la stessa struttura dei file reali.</li>
     <li>Cliccando su <b>PartsPlanner</b>, in alto a sinistra, torni sempre alla pagina iniziale.</li></ul>`)}
@@ -25,12 +25,11 @@ async function viewComeFunziona(main) {
       <p>Con l'importo libero puoi anche fissare un <b>tetto per codice</b> oltre la SMax e la soglia dell'<b>avviso</b> di copertura. Il riquadro «Pianifica in base alle probabilità di vendita» ha un link che spiega come si calcola la probabilità.</p>`)}
     ${passo(2, "Liste movimentazione", `<p>Premi <b>Scegli i file Excel</b> e carica l'export. Se la lista è divisa in più file, aggiungili tutti: vengono uniti. La piattaforma riconosce da sola le colonne; se ne manca una obbligatoria te lo chiede.</p>
       <p>Se i dati dell'ultimo caricamento vanno ancora bene, premi <b>Usa questi dati e scegli i codici</b> e salti direttamente al passo 4.</p>`)}
-    ${passo(3, "Giacenze (facoltative)", `<p>Le liste riportano già le giacenze alla fine del mese precedente. Se hai un file più recente dal gestionale, aggiungilo:</p>
-      <div class="tablebox"><table><thead><tr><th>Dove si trova il codice</th><th>Giacenza usata</th></tr></thead><tbody>
-        <tr><td>nelle liste e nel file giacenze</td><td>quella del file giacenze</td></tr>
-        <tr><td>solo nelle liste</td><td>quella delle liste</td></tr>
-        <tr><td>solo nel file giacenze</td><td>quella del file giacenze, senza scorte né prezzi</td></tr></tbody></table></div>
-      <p>Costi, SMin, SMax, consumi e ordini aperti vengono sempre dalle liste. Prima di salvare un riepilogo mostra quante giacenze cambiano. Premi <b>Incrocia e salva</b>: il caricamento resta nello storico con data e ora.</p>`)}
+    ${passo(3, "Giacenze", `<p>La piattaforma mostra la giacenza di ogni codice come la riportano le liste movimentazione, cioè a fine mese. Se da allora qualcosa è cambiato:</p><ul>
+      <li>cerca il codice per codice, descrizione o locazione e scrivi la giacenza di oggi nella colonna <b>Giacenza attuale</b>; le righe corrette si colorano;</li>
+      <li><b>Solo i codici corretti</b> mostra solo quelli che hai cambiato; <b>Annulla le correzioni</b> le toglie tutte.</li></ul>
+      <p>Se non è cambiato niente premi <b>Conferma e salva</b>; con delle correzioni il pulsante diventa <b>Salva con N correzioni</b>. Solo la giacenza cambia: costi, SMin, SMax, consumi e ordini aperti restano quelli delle liste, e la giacenza delle liste resta salvata accanto a quella corretta. Il caricamento resta nello storico con data e ora.</p>
+      <p class="small muted">Se le liste non riportano le giacenze, a questo passo la piattaforma chiede invece il file giacenze del gestionale.</p>`)}
     ${passo(4, "Codici", `<p>Scegli su quali codici lavorare: <b>Tutti i codici</b>, <b>Li scrivo io</b> (anche incollando un elenco) oppure <b>Li carico da un Excel</b>. In <b>Restringi ancora</b> puoi limitarti ad alcuni gruppi principali o alle classi ABC; in <b>Codici su richiesta</b> puoi escludere i codici che vendono troppo poco.</p>`)}
     ${passo(5, "Risultato", `<p>La piattaforma calcola la proposta. In alto trovi il valore dell'ordine, le righe, i codici a zero e sotto scorta coperti, come è composto l'importo e quali codici sono stati esclusi e perché. Sotto c'è la tabella da confermare, spiegata nella sezione successiva.</p>
       <p>Con <b>Cambia obiettivo</b> o <b>Cambia codici</b> provi un'altra ipotesi: le proposte calcolate si confrontano nel riquadro <b>Confronto scenari</b>. <b>Ricomincia</b> riparte da zero.</p>`)}`)}

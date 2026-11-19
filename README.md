@@ -65,9 +65,8 @@ L'amministratore può caricare, in «Amministrazione», un Excel con un elenco d
 
 Le liste movimentazione possono riportare, in una colonna, la giacenza di ogni codice alla fine del mese precedente; il file giacenze è la situazione al momento dell'estrazione.
 
-- **Solo le liste** — se riportano le giacenze, i calcoli partono da quelle: il file giacenze è facoltativo.
-- **Liste e file giacenze** — valgono le giacenze del file, più recenti. Costi, SMin, SMax, consumo, regolarità e ordini aperti restano quelli delle liste. Prima di salvare la pagina mostra il confronto: quanti codici sono cambiati, in calo e in aumento, e il valore al costo prima e dopo.
-- **Giacenze con il file giacenze** — codice nelle liste e nel file: vale il file; codice nelle liste ma non nel file: vale la giacenza delle liste; codice solo nel file: vale il file (entra senza scorte né prezzi). Costi, SMin, SMax, consumi e ordini aperti vengono sempre dalle liste.
+- **Giacenze delle liste** — i calcoli partono dalla giacenza riportata dalle liste (fine mese precedente).
+- **Correzioni a mano** — al passo 3 di «Nuovo ordine» l'utente vede la giacenza di ogni codice e corregge quelle cambiate dopo la chiusura del mese; per quei codici vale la giacenza corretta (fonte «manuale»), per gli altri quella delle liste. La giacenza delle liste resta salvata accanto.
 - **Liste senza giacenze** (colonna assente o vuota) — il file giacenze è obbligatorio.
 
 Di ogni caricamento si salva da dove vengono le giacenze (`stock_src`: `lista`, `file`, `file_lista`) e, se è scritta nell'intestazione della colonna, la data a cui si riferiscono quelle delle liste (`stock_ref`); per ogni codice resta anche la giacenza riportata dalla lista (`giac_lista`). L'origine è scritta in ogni pagina, nell'Excel e nel PDF.

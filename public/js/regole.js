@@ -8,7 +8,7 @@
  *  amount : pianifica per un importo, rispettando SMin e SMax
  *  free   : pianifica per un importo libero, con facoltà di andare oltre la SMax
  */
-const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze (facoltative)", "Codici", "Risultato"];
+const WSTEPS = ["Obiettivo", "Liste movimentazione", "Giacenze", "Codici", "Risultato"];
 const ORIZZ = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"]];
 // tetto per codice oltre la SMax: da 1 a 6 mesi e, dopo i 6 mesi, «nessun limite» (lo stesso ordine del cursore nelle regole)
 const COVER_MAX = [[1, "1 mese"], [2, "2 mesi"], [3, "3 mesi"], [4, "4 mesi"], [5, "5 mesi"], [6, "6 mesi"], [0, "nessun limite"]];

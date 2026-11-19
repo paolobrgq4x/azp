@@ -517,7 +517,26 @@ function extract(slot) {
   }
   return out;
 }
-function clearUpload() { const U = state.upload; U.A = []; U.B = []; U.miss = null; U.missKey = null; }
+function clearUpload() { const U = state.upload; U.A = []; U.B = []; U.miss = null; U.missKey = null; U.edits = new Map(); U.editsKey = null; }
+/* ============ Giacenze corrette a mano ============
+ * Le liste riportano le giacenze a fine mese; al passo 3 l'utente può correggere quelle cambiate nel frattempo.
+ * Le correzioni (codice → nuova giacenza) valgono solo per le liste con cui sono state fatte. */
+let SROWS = { key: null, rows: [] };
+function stockRows() {
+  const LS = listStock();
+  if (SROWS.key === LS.key) return SROWS.rows;
+  const seen = new Set(), rows = [];
+  for (const r of extract("A")) {
+    const c = codeKey(r[0]); if (!c || seen.has(c)) continue; seen.add(c);
+    rows.push({ code: c, descr: String(r[1] == null ? "" : r[1]), loc: String(r[2] == null ? "" : r[2]), gl: r[14] == null || r[14] === "" ? 0 : nz(r[14]) });
+  }
+  SROWS = { key: LS.key, rows }; return rows;
+}
+function stockEdits() {
+  const U = state.upload, key = listStock().key;
+  if (!U.edits || U.editsKey !== key) { U.edits = new Map(); U.editsKey = key; }
+  return U.edits;
+}
 async function save(onDone) {
   const b = $("#save"), st = $("#sstat"), err = $("#uerr"), U = state.upload;
   b.disabled = true; st.textContent = "Salvataggio in corso…"; err.hidden = true;
@@ -527,8 +546,10 @@ async function save(onDone) {
     // i tracciati usati (intestazione → colonne) vengono ricordati per la concessionaria
     const layouts = []; for (const k of ["A", "B"]) for (const s of U[k]) if (s.sig) layouts.push({ kind: k, sig: s.sig, map: s.map });
     // senza file giacenze valgono le giacenze riportate dalle liste; con il file, la scelta per i codici che nel file non ci sono
-    const useB = U.B.length > 0, LS = listStock();
-    const body = { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"), rowsB: useB ? extract("B") : null,
+    // le giacenze corrette a mano arrivano come un piccolo «file giacenze» con i soli codici cambiati
+    const useB = U.B.length > 0, LS = listStock(), ed = !useB && LS.has ? stockEdits() : new Map();
+    const body = { dealer_id: state.dealerId, file_a: names("A"), file_b: useB ? names("B") : "", rowsA: extract("A"),
+      rowsB: useB ? extract("B") : ed.size ? [...ed].map(([c, q]) => [c, q, ""]) : null, manual: !useB && ed.size > 0,
       missing: "lista", stock_ref: LS.has ? LS.ref : null, layouts };
     busy("Invio dei dati: 0%", 0);
     const r = await apiUpload("/api/snapshots", body, q => busy(`Invio dei dati: ${Math.round(q * 100)}%`, q * 0.6), () => busy("Incrocio delle liste con le giacenze e salvataggio…"));
